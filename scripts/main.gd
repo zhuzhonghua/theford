@@ -220,6 +220,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			dialog_ui.open_npc(npc)
 
 func _process(_delta: float) -> void:
+	_maybe_capture_frame()
 	# walk-over ore pickup (copy keys: we may erase during the loop)
 	for pos in ores_left.keys().duplicate():
 		var ore: Sprite2D = ores_left.get(pos)
@@ -266,8 +267,67 @@ func _maybe_run_headless_demo() -> void:
 	var snap_dir := OS.get_environment("THEFORD_SNAPSHOT_DIR")
 	if npc_id == "" and snap_dir == "":
 		return
+	_maybe_start_recording()
 	_run_headless_demo(npc_id, OS.get_environment("THEFORD_DEMO_TOPICS"),
 			snap_dir, OS.get_environment("THEFORD_DEMO_QUIT") == "1")
+
+## ---------------------------------------------------------------- recording --
+## Engine-side screen recording: no OS screen-recording permission needed, the
+## demo saves JPEG frames straight from the viewport, ffmpeg assembles them.
+##   THEFORD_RECORD_DIR=dir          frame directory (required to record)
+##   THEFORD_RECORD_START=4.6        seconds after launch to start (default
+##                                   4.6 = dialog about to open)
+##   THEFORD_RECORD_DURATION=17.6    capture length (covers ask + cache replay)
+##   THEFORD_RECORD_FPS=24           pacing; 1920-wide JPEGs, q92
+var _rec_dir := ""
+var _rec_next_ms := 0
+var _rec_stop_ms := 0
+var _rec_step_ms := 0
+var _rec_i := 0
+var _rec_done := false
+
+func _maybe_start_recording() -> void:
+	_rec_dir = OS.get_environment("THEFORD_RECORD_DIR")
+	if _rec_dir == "":
+		return
+	var start_s := 4.6
+	var dur_s := 17.6
+	var fps := 24
+	if OS.get_environment("THEFORD_RECORD_START") != "":
+		start_s = float(OS.get_environment("THEFORD_RECORD_START"))
+	if OS.get_environment("THEFORD_RECORD_DURATION") != "":
+		dur_s = float(OS.get_environment("THEFORD_RECORD_DURATION"))
+	if OS.get_environment("THEFORD_RECORD_FPS") != "":
+		fps = maxi(1, int(float(OS.get_environment("THEFORD_RECORD_FPS"))))
+	_rec_step_ms = int(1000.0 / fps)
+	var now := Time.get_ticks_msec()
+	_rec_next_ms = now + int(start_s * 1000.0)
+	_rec_stop_ms = now + int((start_s + dur_s) * 1000.0)
+	DirAccess.make_dir_recursive_absolute(_rec_dir)
+	print("[rec] start=%.1fs dur=%.1fs fps=%d -> %s" % [start_s, dur_s, fps, _rec_dir])
+
+func _maybe_capture_frame() -> void:
+	if _rec_done:
+		return
+	var now := Time.get_ticks_msec()
+	if now < _rec_next_ms:
+		return
+	if now > _rec_stop_ms:
+		_rec_done = true
+		print("[rec] done: %d frames" % _rec_i)
+		return
+	var img := get_viewport().get_texture().get_image()
+	if img != null:
+		# Downscale the retina viewport; 1920 keeps 1080p-class upload quality.
+		if img.get_width() > 1920:
+			img.resize(1920,
+					int(img.get_height() * 1920.0 / img.get_width()),
+					Image.INTERPOLATE_LANCZOS)
+		# JPEG saving fails on this Godot build (quality errors, empty files);
+		# PNG is proven via the snapshot hook, just heavier on disk.
+		img.save_png("%s/f%06d.png" % [_rec_dir, _rec_i])
+	_rec_i += 1
+	_rec_next_ms = now + _rec_step_ms
 
 func _headless_snap(snap_dir: String) -> void:
 	if snap_dir == "":
