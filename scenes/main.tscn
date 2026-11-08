@@ -1,0 +1,108 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/dialog.gd" id="2_dialog"]
+[ext_resource type="Texture2D" path="res://assets/na/Ui/Dialog/DialogBoxFaceset.png" id="3_box"]
+[ext_resource type="Texture2D" path="res://assets/na/Ui/Theme/Theme Wood/nine_path_panel_2.png" id="4_panel"]
+[ext_resource type="Texture2D" path="res://assets/lsw/Faces/Actor/Character/Villager/Faceset.png" id="5_face"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="World" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="UI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="HUD" type="Panel" parent="UI"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 428.0
+offset_bottom = 104.0
+self_modulate = Color(1, 1, 1, 0.85)
+
+[node name="HUDLabel" type="Label" parent="UI/HUD"]
+offset_left = 16.0
+offset_top = 10.0
+offset_right = 412.0
+offset_bottom = 96.0
+text = "任务：未接（找铁匠老王聊聊）
+铁矿石背包 x0   LLM：本地推理"
+theme_override_constants/line_spacing = 6
+theme_override_font_sizes/font_size = 20
+
+[node name="Dialog" type="CanvasLayer" parent="."]
+layer = 10
+script = ExtResource("2_dialog")
+
+[node name="Box" type="NinePatchRect" parent="Dialog"]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -370.0
+offset_top = -190.0
+offset_right = 370.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 0
+texture = ExtResource("3_box")
+patch_margin_left = 46
+patch_margin_top = 10
+patch_margin_right = 10
+patch_margin_bottom = 10
+
+[node name="Portrait" type="TextureRect" parent="Dialog/Box"]
+offset_left = 12.0
+offset_top = 14.0
+offset_right = 100.0
+offset_bottom = 102.0
+texture = ExtResource("5_face")
+texture_filter = 1
+stretch_mode = 5
+
+[node name="NameLabel" type="Label" parent="Dialog/Box"]
+offset_left = 112.0
+offset_top = 16.0
+offset_right = 600.0
+offset_bottom = 52.0
+text = "老王"
+theme_override_colors/font_color = Color(0.28, 0.16, 0.08, 1)
+theme_override_font_sizes/font_size = 26
+vertical_alignment = 1
+
+[node name="Text" type="RichTextLabel" parent="Dialog/Box"]
+offset_left = 112.0
+offset_top = 54.0
+offset_right = 718.0
+offset_bottom = 158.0
+text = "来了？坐。炉火不等人，有什么话快说。"
+theme_override_colors/default_color = Color(0.22, 0.14, 0.1, 1)
+scroll_active = false
+autowrap_mode = 3
+theme_override_font_sizes/normal_font_size = 28
+
+[node name="Menu" type="NinePatchRect" parent="Dialog"]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -308.0
+offset_top = -380.0
+offset_right = -8.0
+offset_bottom = -204.0
+grow_horizontal = 0
+grow_vertical = 0
+texture = ExtResource("4_panel")
+patch_margin_left = 6
+patch_margin_top = 6
+patch_margin_right = 6
+patch_margin_bottom = 6
+
+[node name="MenuVBox" type="VBoxContainer" parent="Dialog/Menu"]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 290.0
+offset_bottom = 166.0
+theme_override_constants/separation = 4

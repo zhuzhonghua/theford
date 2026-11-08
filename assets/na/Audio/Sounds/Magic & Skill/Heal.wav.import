@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cpkwuoe7bwy1"
+path="res://.godot/imported/Heal.wav-9dda2c772d02a7c6fa378909a59038d3.sample"
+
+[deps]
+
+source_file="res://assets/na/Audio/Sounds/Magic & Skill/Heal.wav"
+dest_files=["res://.godot/imported/Heal.wav-9dda2c772d02a7c6fa378909a59038d3.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,17 @@
+; scmllama.gdextension — bridges the scmllama C++ core (dummyscheme + llama.cpp)
+; into Godot as the ScmLlama class. Built from ../llama.cpp-scheme:
+;   cmake -S . -B build -DSCMLLAMA_BUILD_GDEXTENSION=ON -DCMAKE_BUILD_TYPE=Release
+;   cmake --build build --target scmllama_gdextension
+;
+; This file references platform libraries under addons/scmllama/bin/.
+; NOTE: Godot's ConfigFile parser only accepts ';' comments, not '#'.
+
+[configuration]
+
+entry_symbol = "scmllama_library_init"
+compatibility_minimum = "4.5"
+
+[libraries]
+
+macos.debug = "res://addons/scmllama/bin/libscmllama_gdextension.dylib"
+macos.release = "res://addons/scmllama/bin/libscmllama_gdextension.dylib"
