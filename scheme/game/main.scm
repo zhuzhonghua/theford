@@ -24,6 +24,7 @@
 ;; Modules (each may be read on its own; require caches by module name):
 ;;   data/world.scm   world parameters (seed, start, startHour, params)
 ;;   data/types.scm   is-a type hierarchy (actor/…, item/…, fixture/…), is-a
+;;   data/maps.scm    map-level names: anchors, portals, zone, music, npc roster
 ;;   data/people.scm  roster: names, personas, canned lines (loaded by npcs.scm)
 ;;   util.scm   string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
@@ -37,6 +38,7 @@
 (require "game.util")
 (require "game.data.world")
 (require "game.data.types")
+(require "game.data.maps")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
