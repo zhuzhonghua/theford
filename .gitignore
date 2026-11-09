@@ -7,6 +7,8 @@ export/
 # Built GDExtension binaries (produced by llama.cpp-scheme CMake)
 addons/scmllama/bin/
 
+videos/
+
 # Local LLM weights (download/copy separately, ~400 MB)
 models/
 

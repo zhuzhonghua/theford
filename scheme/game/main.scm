@@ -19,6 +19,7 @@
 ;; the canned reply table, and the quest still completes end to end.
 ;;
 ;; Modules (each may be read on its own; require caches by module name):
+;;   data/world.scm  world parameters (seed, start, startHour, params)
 ;;   util.scm   string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   npcs.scm   roster, fallback lines, personas, topic utterances
@@ -29,6 +30,7 @@
 ;; Scheme only owns game state.
 
 (require "game.util")
+(require "game.data.world")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
