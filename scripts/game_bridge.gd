@@ -28,8 +28,6 @@ var vm_error := ""
 var booted := false
 ## Immutable view of what the HUD needs; written only on the main thread.
 var snapshot := {"quest_text": "", "carried": 0}
-## Tile map, fetched once at bootstrap and then read by the world builder.
-var map_rows := PackedStringArray()
 
 var _thread: Thread = null
 var _mutex := Mutex.new()
@@ -71,7 +69,6 @@ func _worker_main() -> void:
 		"kind": "ready",
 		"llm": false,
 		"error": "",
-		"map_rows": PackedStringArray(),
 		"status": [],
 	}
 	var vm: ScmLlama = ScmLlama.new()
@@ -80,12 +77,6 @@ func _worker_main() -> void:
 		err = vm.load_file(_main_scm)
 
 	if err == "":
-		var rows: Variant = vm.call_fn("game:map-rows", [])
-		if rows is Array:
-			var packed := PackedStringArray()
-			for r in rows:
-				packed.append(str(r))
-			msg["map_rows"] = packed
 		if _model_path != "":
 			vm.call_fn("game:set-model-path", [_model_path])
 			# Blocking load (~1s for 0.6B Q4) happens on this thread, so the
@@ -153,9 +144,6 @@ func _process(_delta: float) -> void:
 func _on_ready(m: Dictionary) -> void:
 	vm_error = str(m.get("error", ""))
 	use_llm = bool(m.get("llm", false))
-	var rows: Variant = m.get("map_rows")
-	if rows is PackedStringArray:
-		map_rows = rows
 	var st: Variant = m.get("status")
 	if st is Array and st.size() == 2:
 		_write_snapshot(st[0], st[1])

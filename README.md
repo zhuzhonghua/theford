@@ -32,6 +32,7 @@ cmake --build build-gd --target scmllama_gdextension -j
 - WASD/方向键走路，E 与 NPC 对话
 - 数字键 1-4 选话题；天气、活计、村子的事按话题问
 - 走过地上的石头/矿石自动拾取
+- 地图、NPC、矿石、玩家均在 `scenes/world.tscn` 中手工摆放（编辑器里直接拖动）
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
 
@@ -41,11 +42,15 @@ cmake --build build-gd --target scmllama_gdextension -j
 project.godot
 assets/            # Ninja Adventure (na/) + lsw 自绘素材 + fonts/ 字体
 models/            # 本地 LLM 权重（Qwen3-0.6B-Q4_K_M.gguf，不入 git）
-scenes/main.tscn
+scenes/
+  main.tscn        # Main：World 实例 + HUD + 对话框
+  world.tscn       # 村庄静态场景：地形/树/矿石/NPC/玩家，直接在编辑器里摆放
+  world_tileset.tres
+  player.tscn npc.tscn ore.tscn
 scripts/
   game_bridge.gd   # autoload "Game"：主线程 ↔ 逻辑线程的 RPC 边界（ScmLlama 独占一条线程）
-  main.gd          # 拼装地图/NPC/矿石/UI（TileSet 全部运行时构建）
-  player.gd npc.gd dialog.gd
+  main.gd          # 输入/对话/HUD 接线；阻挡规则读 world.tscn（水面 tile + obstacle 组）
+  player.gd npc.gd ore.gd dialog.gd
 scheme/game/main.scm   # 游戏逻辑全部在这：状态机 + LLM 提议/台词
 addons/scmllama/       # GDExtension（bin/ 下的 dylib 由 llama.cpp-scheme 构建产出）
 ```

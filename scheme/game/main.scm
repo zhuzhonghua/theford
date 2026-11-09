@@ -17,8 +17,8 @@
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
 ;; the canned reply table, and the quest still completes end to end.
 
-;; The map is generated in its own file so main.scm stays about behaviour.
-(require "game.map")
+;; The village map is authored in Godot (scenes/world.tscn), so Scheme no
+;; longer owns map geometry — it only owns game state.
 
 ;; ---- helpers ---------------------------------------------------------------
 

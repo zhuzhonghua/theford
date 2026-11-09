@@ -3,9 +3,9 @@ extends Sprite2D
 ## (same row layout as the player). The NPC never decides anything: its
 ## lines come from Scheme (async RPC via Game.call_async) on E press.
 
-var npc_id := ""
-var display_name := ""
-var facing_row := 0
+@export var npc_id := ""
+@export var display_name := ""
+@export var facing_row := 0
 
 var _name_label: Label
 

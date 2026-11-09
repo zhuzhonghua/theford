@@ -1,0 +1,8 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ore.gd" id="1_ore"]
+[ext_resource type="Texture2D" path="res://assets/na/Items/Resource/Rock.png" id="2_rock"]
+
+[node name="Ore" type="Sprite2D"]
+texture = ExtResource("2_rock")
+script = ExtResource("1_ore")
