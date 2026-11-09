@@ -74,11 +74,10 @@
             (else "……"))))
 
 ;; ---- learned lines (cache) --------------------------------------------------
-;; Same idea as openworld's learned.ts: an LLM-generated line is proposed
-;; once, then it belongs to the village. For the exact same
-;; (npc, topic, quest-state) the replayed answer is deterministic — the
-;; second ask never hits the model. Returns (line source learned?):
-;;   source ∈ "llm" | "cache" | "canned" | "fallback"
+;; An LLM-generated line is proposed once, then it belongs to the village.
+;; For the exact same (npc, topic, quest-state) the replayed answer is
+;; deterministic — the second ask never hits the model.
+;; Returns (line source learned?): source ∈ "llm" | "cache" | "canned" | "fallback"
 (define *learned* '())
 
 (define (learn-key npc t)
