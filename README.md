@@ -35,6 +35,11 @@ cmake --build build-gd --target scmllama_gdextension -j
 - 地图、NPC、矿石、玩家均在 `scenes/world.tscn` 中手工摆放（编辑器里直接拖动）
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
+- **F1** 打开“机制 HUD”：显示话题 → 意图、Scheme 判定（接受/拒绝/忽略）、
+  台词真实来源（LLM / learned 缓存 / 剧本 / 预置）、模型名，以及上游 `llm-perf`
+  读出的 prefill / decode 速度；
+  录屏/演示环境（`THEFORD_DEMO_*`、`THEFORD_RECORD_DIR`）默认打开，
+  `THEFORD_MECHANISM=0` 可强制关闭
 
 ## 结构
 
@@ -59,7 +64,8 @@ addons/scmllama/       # GDExtension（bin/ 下的 dylib 由 llama.cpp-scheme �
 
 - 逻辑线程模型：ScmLlama 实例由专用 worker 线程创建/使用/销毁（dummyscheme 与
   llama_context 非线程安全），主线程通过纯数据消息 `{fn,args,ticket}` 通信；
-  LLM 生成期间画面不卡，流式逐 token 输出仍在 TODO
+  LLM 生成期间画面不卡，逐 token 流式输出已接通（`llm-stream-push` →
+  `ScmLlama.stream_poll()` → `stream_pieces` → 对话框逐段上字）
 - 消息形状即 RPC：将来把线程队列换成 WebSocket 即可把逻辑移到服务器，游戏代码不动
 - 中文用项目自带字体渲染：`assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2`
   （Fusion Pixel，SIL OFL 许可，见 `assets/fonts/OFL.txt`），不再依赖系统字体

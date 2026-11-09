@@ -24,6 +24,7 @@ var cjk_font: Font
 
 var is_open := false
 var _npc_id := ""
+var _base_name := ""
 var _typing := false
 var _type_speed := 40.0  # visible ratio per second
 # True-token streaming: while `game:talk` is in flight, pieces arrive via
@@ -46,7 +47,8 @@ func apply_font(f: Font) -> void:
 func open_npc(npc: Node2D) -> void:
 	_npc_id = npc.npc_id
 	_set_portrait(_npc_id)
-	_name_label.text = npc.display_name
+	_base_name = npc.display_name
+	_name_label.text = _base_name
 	npc.face_towards(position_of_player())
 	_clear_menu()
 	_text.text = ""
@@ -124,7 +126,9 @@ func _choose(topic: String) -> void:
 	if learned:
 		# "learned" line: this exact (NPC, topic, village state) hit the Scheme
 		# cache, so the answer is stable — mark it on the name plate.
-		_name_label.text += "  📖 记住了"
+		_name_label.text = _base_name + "  📖 记住了"
+	else:
+		_name_label.text = _base_name
 	var shown_live: bool = _text.text != "" and _text.visible_ratio >= 1.0
 	if shown_live:
 		# The token stream already revealed this line; just finalize it
@@ -162,7 +166,7 @@ func _type_out_free(line: String) -> void:
 ## name above the text, so drop the duplicated prefix.
 func _strip_name(line: String) -> String:
 	for sep in ["：", ":"]:
-		var prefix: String = _name_label.text + str(sep)
+		var prefix: String = _base_name + str(sep)
 		if line.begins_with(prefix):
 			return line.substr(prefix.length())
 	return line

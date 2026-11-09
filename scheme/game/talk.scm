@@ -77,7 +77,8 @@
 ;; Same idea as openworld's learned.ts: an LLM-generated line is proposed
 ;; once, then it belongs to the village. For the exact same
 ;; (npc, topic, quest-state) the replayed answer is deterministic — the
-;; second ask never hits the model. Returns a (line . learned?) pair.
+;; second ask never hits the model. Returns (line source learned?):
+;;   source ∈ "llm" | "cache" | "canned" | "fallback"
 (define *learned* '())
 
 (define (learn-key npc t)
@@ -96,16 +97,23 @@
 (define (llm-line npc t prompt)
   (let ((key (learn-key npc t)))
     (let ((hit (learn-get key)))
-      (cond (hit (cons hit #t))
+      (cond (hit (list hit "cache" #t))
             (else
              (let ((l (generate-line prompt 120)))
-               (cond ((string=? l "") (cons (fallback-line npc t) #f))
-                     (else (learn-put! key l) (cons l #f)))))))))
+               (cond ((string=? l "")
+                      (list (fallback-line npc t) "fallback" #f))
+                     (else
+                      (learn-put! key l)
+                      (list l "llm" #f)))))))))
 
 (define (plain-line npc t)
-  (cons (fallback-line npc t) #f))
+  (list (fallback-line npc t) "canned" #f))
 
 ;; One conversational turn: canned path and LLM path share the same plumbing.
+;; Return shape (all elements visible to the mechanism HUD):
+;;   (reply quest-text carried learned? decision)
+;; where decision =
+;;   (topic intent verdict-status reason source model-desc prefill-tps decode-tps).
 (define (game:talk npc topic)
   (let* ((t (topic-key topic))
          (quest-topic (and (equal? npc "smith") (or (eq? t 'quest) (eq? t 'give))))
@@ -123,16 +131,33 @@
          ;; Path 3: village / work / plain chat goes through the LLM,
          ;; then through the learned cache.
          (reply
-           (cond ((not *use-llm*) (plain-line npc t))
-                 ((and quest-topic (not (eq? (car verdict) 'ignored)))
-                  (cons (canned-quest-line npc verdict) #f))
+           (cond ((and quest-topic (not (eq? (car verdict) 'ignored)))
+                  ;; Quest milestones are scripted even without a model: the
+                  ;; verdict must match the line ("rejected" can never say
+                  ;; "I'll take it").
+                  (list (canned-quest-line npc verdict) "canned" #f))
+                 ((not *use-llm*) (plain-line npc t))
                  (quest-topic (plain-line npc t))
-                 (else (llm-line npc t (build-prompt npc player-text verdict))))))
+                 (else (llm-line npc t (build-prompt npc player-text verdict)))))
+         ;; llm-perf numbers only belong to a turn that actually ran the model.
+         (perf (if (string=? (cadr reply) "llm")
+                   (game:last-perf)
+                   (list 0.0 0.0)))
+         (prefill-perf (car perf))
+         (decode-perf (cadr perf)))
     (hist-add npc "玩家" player-text)
     (hist-add npc (or (alist-get *npc-display* npc) npc) (car reply))
-    ;; (reply quest-text carried learned?) — learned? drives the "📖 记住了"
-    ;; marker in the dialog panel.
-    (list (car reply) (quest-text) *carried* (cdr reply))))
+    ;; The 4th element drives the "📖 记住了" marker; the 5th is the HUD's
+    ;; mechanism trace. Symbols become plain strings through the GDExtension.
+    (list (car reply) (quest-text) *carried* (caddr reply)
+          (list (symbol->string t)
+                (symbol->string intent)
+                (symbol->string (car verdict))
+                (cdr verdict)
+                (cadr reply)
+                (if (string? *model-desc*) *model-desc* "")
+                prefill-perf
+                decode-perf))))
 
 ;; The LLM is told what happened (verdict), but the canonical line for quest
 ;; milestones is scripted — the same reason cutscenes are scripted.
@@ -142,5 +167,10 @@
                 "老王：好嘞！三块铁矿石，河边滩上冲下来的石头里看好料。找着了拿来我这儿。")
                ((eq? *quest-state* 'completed)
                 "老王：得了！矿石齐了，剑也成了。给你——往后就是渡口村的人了。")))
-        ((eq? (car verdict) 'rejected) "老王：这可不行，先把矿石找来。")
+        ((eq? (car verdict) 'rejected)
+         (cond ((eq? *quest-state* 'completed)
+                "老王：矿石早收齐了，剑不是已经给你了吗？")
+               ((eq? *quest-state* 'not-offered)
+                "老王：活儿还没接呢，先把矿石找来再说。")
+               (else "老王：这可不行，先把矿石找来。")))
         (else (fallback-line npc 'work))))

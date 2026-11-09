@@ -12,6 +12,8 @@ var map_w := 0
 var map_h := 0
 
 var blocked := {}        # Vector2i -> true
+const MechHud := preload("res://scripts/mech_hud.gd")
+var mech: MechHud = null
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -24,6 +26,9 @@ func _ready() -> void:
 	var font := _load_cjk_font()
 	hud_label.add_theme_font_override("font", font)
 	dialog_ui.apply_font(font)
+	mech = MechHud.new()
+	add_child(mech)
+	mech.setup(font)
 	hud_label.text = "……（启动中）"
 	_setup_audio()
 	_setup_world()
@@ -102,14 +107,22 @@ func _fit_zoom() -> float:
 func _refresh_hud() -> void:
 	if hud_label == null:
 		return
-	hud_label.text = "%s\n铁矿石背包 x%d   %s" % [
+	var hint := "" if (mech != null and mech.is_showing()) else "   F1 机制"
+	hud_label.text = "%s\n铁矿石背包 x%d   %s%s" % [
 			str(Game.snapshot.get("quest_text", "")),
 			int(Game.snapshot.get("carried", 0)),
-			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词")]
+			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
+			hint]
 
 ## ------------------------------------------------------------------ input --
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F1:
+			if mech != null:
+				mech.toggle_visible()
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("interact") and not dialog_ui.is_open:
 		var npc := _nearest_npc(player.position, 30.0)
 		if npc != null:
@@ -214,24 +227,32 @@ func _maybe_capture_frame() -> void:
 		_rec_done = true
 		print("[rec] done: %d frames" % _rec_i)
 		return
-	var img := get_viewport().get_texture().get_image()
-	if img != null:
-		# Downscale the retina viewport; 1920 keeps 1080p-class upload quality.
-		if img.get_width() > 1920:
-			img.resize(1920,
-					int(img.get_height() * 1920.0 / img.get_width()),
-					Image.INTERPOLATE_LANCZOS)
-		# JPEG saving fails on this Godot build (quality errors, empty files);
-		# PNG is proven via the snapshot hook, just heavier on disk.
-		img.save_png("%s/f%06d.png" % [_rec_dir, _rec_i])
+	var vp_tex := get_viewport().get_texture()
+	var img: Image = vp_tex.get_image() if vp_tex != null else null
+	if img == null:
+		# --headless has no framebuffer; recording needs a windowed run.
+		_rec_done = true
+		return
+	# Downscale the retina viewport; 1920 keeps 1080p-class upload quality.
+	if img.get_width() > 1920:
+		img.resize(1920,
+				int(img.get_height() * 1920.0 / img.get_width()),
+				Image.INTERPOLATE_LANCZOS)
+	# JPEG saving fails on this Godot build (quality errors, empty files);
+	# PNG is proven via the snapshot hook, just heavier on disk.
+	img.save_png("%s/f%06d.png" % [_rec_dir, _rec_i])
 	_rec_i += 1
 	_rec_next_ms = now + _rec_step_ms
 
 func _headless_snap(snap_dir: String) -> void:
 	if snap_dir == "":
 		return
+	var vp_tex := get_viewport().get_texture()
+	var img: Image = vp_tex.get_image() if vp_tex != null else null
+	if img == null:
+		# --headless has no framebuffer; snapshots need a windowed run.
+		return
 	_demo_shot_i += 1
-	var img := get_viewport().get_texture().get_image()
 	img.save_png("%s/shot-%d.png" % [snap_dir, _demo_shot_i])
 
 var _demo_shot_i := 0

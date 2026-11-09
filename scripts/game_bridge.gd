@@ -26,8 +26,16 @@ const DEFAULT_GGUF := "models/Qwen3-0.6B-Q4_K_M.gguf"
 var use_llm := false
 var vm_error := ""
 var booted := false
-## Immutable view of what the HUD needs; written only on the main thread.
-var snapshot := {"quest_text": "", "carried": 0}
+## Main-thread view of what the HUD needs; only the bridge writes it.
+## last_turn is the mechanism trace of the most recent game:talk:
+##   {topic, intent, verdict, reason, source, model, learned, prefill_tps, decode_tps}
+var snapshot := {
+	"quest_text": "",
+	"carried": 0,
+	"model": "",
+	"llm_version": "",
+	"last_turn": {},
+}
 
 var _thread: Thread = null
 var _mutex := Mutex.new()
@@ -86,6 +94,9 @@ func _worker_main() -> void:
 		var st: Variant = vm.call_fn("game:status", [])
 		if st is Array and st.size() == 2:
 			msg["status"] = st
+		var eng: Variant = vm.call_fn("game:engine-info", [])
+		if eng is Array:
+			msg["engine"] = eng
 	else:
 		msg["error"] = err
 	_push(msg)
@@ -147,6 +158,10 @@ func _on_ready(m: Dictionary) -> void:
 	var st: Variant = m.get("status")
 	if st is Array and st.size() == 2:
 		_write_snapshot(st[0], st[1])
+	var eng: Variant = m.get("engine")
+	if eng is Array and eng.size() >= 3:
+		snapshot["model"] = str(eng[0])
+		snapshot["llm_version"] = str(eng[2])
 	booted = true
 	if vm_error != "":
 		push_error("[scmllama] Scheme bootstrap failed: " + vm_error)
@@ -160,9 +175,15 @@ func _absorb(fn: String, result: Variant) -> void:
 		"game:status":
 			if result is Array and result.size() == 2:
 				_write_snapshot(result[0], result[1])
-		"game:greet", "game:talk":
+		"game:greet":
 			if result is Array and result.size() >= 3:
 				_write_snapshot(result[1], result[2])
+		"game:talk":
+			if result is Array and result.size() >= 3:
+				_write_snapshot(result[1], result[2])
+			if result is Array and result.size() >= 5 and result[4] is Array:
+				var learned: bool = result.size() >= 4 and bool(result[3])
+				_store_turn(result[4], learned)
 		"game:take-ore":
 			if result is int:
 				_write_snapshot(snapshot["quest_text"], result)
@@ -172,7 +193,27 @@ func _write_snapshot(quest_text: Variant, carried: Variant) -> void:
 	var c := int(carried)
 	if str(snapshot["quest_text"]) == qt and int(snapshot["carried"]) == c:
 		return
-	snapshot = {"quest_text": qt, "carried": c}
+	snapshot["quest_text"] = qt
+	snapshot["carried"] = c
+	snapshot_changed.emit()
+
+## decision = (topic intent verdict reason source model-desc prefill-tps decode-tps)
+## from game:talk. The two t/s values come from the Scheme-side llm-perf table.
+func _store_turn(decision: Array, learned: bool) -> void:
+	var turn := {
+		"topic": str(decision[0]) if decision.size() > 0 else "",
+		"intent": str(decision[1]) if decision.size() > 1 else "",
+		"verdict": str(decision[2]) if decision.size() > 2 else "",
+		"reason": str(decision[3]) if decision.size() > 3 else "",
+		"source": str(decision[4]) if decision.size() > 4 else "",
+		"model": str(decision[5]) if decision.size() > 5 else "",
+		"prefill_tps": float(decision[6]) if decision.size() > 6 else 0.0,
+		"decode_tps": float(decision[7]) if decision.size() > 7 else 0.0,
+		"learned": learned,
+	}
+	snapshot["last_turn"] = turn
+	if turn["model"] != "":
+		snapshot["model"] = turn["model"]
 	snapshot_changed.emit()
 
 ## ---- RPC surface ----------------------------------------------------------
