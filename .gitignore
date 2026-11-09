@@ -1,0 +1,19 @@
+# Godot 4 cache / imports
+.godot/
+*.tmp
+export/
+*.dylib.dSYM
+
+# Built GDExtension binaries (produced by llama.cpp-scheme CMake)
+addons/scmllama/bin/
+
+# Local LLM weights (download/copy separately, ~400 MB)
+models/
+
+# Local working notes and capture output (kept out of the repo)
+TODO.md
+context.md
+.screenshots/
+
+# macOS noise
+.DS_Store

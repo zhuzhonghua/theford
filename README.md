@@ -51,7 +51,7 @@ scripts/
   game_bridge.gd   # autoload "Game"：主线程 ↔ 逻辑线程的 RPC 边界（ScmLlama 独占一条线程）
   main.gd          # 输入/对话/HUD 接线；阻挡规则读 world.tscn（水面 tile + obstacle 组）
   player.gd npc.gd ore.gd dialog.gd
-scheme/game/main.scm   # 游戏逻辑全部在这：状态机 + LLM 提议/台词
+scheme/game/main.scm   # 模块清单（require util/llm/npcs/quest/talk）；对话/任务逻辑分在 scheme/game/*.scm
 addons/scmllama/       # GDExtension（bin/ 下的 dylib 由 llama.cpp-scheme 构建产出）
 ```
 
