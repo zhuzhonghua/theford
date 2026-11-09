@@ -7,12 +7,7 @@ extends CanvasLayer
 ## All calls are async RPC (Game.call_async), so the main thread keeps
 ## rendering while the logic thread thinks.
 
-# npc_id -> lsw Faceset directory for the portrait
-const PORTRAITS := {
-	"smith":      "Villager",
-	"apothecary": "Woman",
-	"innkeeper":  "Villager2",
-}
+# Portrait asset paths come from data/catalog.scm (catalog-faceset).
 # The npc_id keys must match scheme/game/main.scm.
 
 var cjk_font: Font
@@ -46,7 +41,7 @@ func apply_font(f: Font) -> void:
 
 func open_npc(npc: Node2D) -> void:
 	_npc_id = npc.npc_id
-	_set_portrait(_npc_id)
+	await _set_portrait(_npc_id)
 	_base_name = npc.display_name
 	_name_label.text = _base_name
 	npc.face_towards(position_of_player())
@@ -205,9 +200,10 @@ func position_of_player() -> Vector2:
 	return main.player.position if main and main.player else Vector2.ZERO
 
 func _set_portrait(npc_id: String) -> void:
-	var dir: String = PORTRAITS.get(npc_id, "Villager")
-	var path: String = "res://assets/lsw/Faces/Actor/Character/%s/Faceset.png" % dir
+	var path: Variant = await Game.call_async("game:catalog-faceset", [npc_id])
+	if path == null or str(path) == "":
+		return
 	var at := AtlasTexture.new()
-	at.atlas = load(path)
+	at.atlas = load("res://" + str(path))
 	at.region = Rect2(0, 0, 38, 38)
 	_portrait.texture = at

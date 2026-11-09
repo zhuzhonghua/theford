@@ -35,6 +35,7 @@ func _ready() -> void:
 	Game.snapshot_changed.connect(_refresh_hud)
 	if Game.booted:
 		_refresh_hud()
+		_start_bgm()
 	else:
 		Game.bridge_ready.connect(_on_bridge_ready)
 	_maybe_run_headless_demo()
@@ -43,20 +44,31 @@ func _ready() -> void:
 ## depends on the Scheme thread (bridge_ready).
 func _on_bridge_ready(_llm: bool) -> void:
 	_refresh_hud()
+	_start_bgm()
 
-## BGM: Ninja Adventure CC0 village theme, wired straight from the import.
-## Godot 4 plays Ogg Vorbis natively; no audio bus setup needed for the slice.
+## BGM player is created early; the stream is loaded from the catalog once
+## the Scheme bridge is up (see _start_bgm). This keeps asset paths in
+## data/catalog.scm — changing the track needs no GDScript edit.
 func _setup_audio() -> void:
-	var theme_stream: AudioStream = load("res://assets/na/Audio/Musics/4 - Village.ogg")
+	var bgm := AudioStreamPlayer.new()
+	bgm.name = "BGM"
+	bgm.volume_db = -10.0
+	add_child(bgm)
+
+## Load the village theme path from the catalog and start playback.
+func _start_bgm() -> void:
+	var path: Variant = await Game.call_async("game:catalog-music", ["village"])
+	if path == null or str(path) == "":
+		return
+	var theme_stream: AudioStream = load("res://" + str(path))
 	if theme_stream == null:
 		return
 	if theme_stream is AudioStreamOggVorbis:
 		theme_stream.loop = true
-	var bgm := AudioStreamPlayer.new()
-	bgm.name = "BGM"
+	var bgm: AudioStreamPlayer = get_node_or_null("BGM")
+	if bgm == null:
+		return
 	bgm.stream = theme_stream
-	bgm.volume_db = -10.0
-	add_child(bgm)
 	bgm.play()
 
 ## ------------------------------------------------------------------ world --
