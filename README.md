@@ -7,67 +7,45 @@
   本地 Qwen3-0.6B 生成 NPC 台词；无模型时自动回退预置台词，游戏照样可通关
 - **素材**：Ninja Adventure（CC0）+ lsw 自绘 CC0 素材
 
-对应计划文档：`llama.cpp-scheme/startup/plan_oss_edu_game.md`（Phase 1 极简切片）。
-
 ## 运行
 
 ```bash
-# 0. 构建 GDExtension（详见 ../llama.cpp-scheme/gdextension/README.md）
-cd ~/clojureserver/llama.cpp-scheme
-cmake -S . -B build-gd -DSCMLLAMA_BUILD_GDEXTENSION=ON \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DSCMLLAMA_GDENGINE_OUTPUT_DIR=$HOME/clojureserver/theford/addons/scmllama/bin
-cmake --build build-gd --target scmllama_gdextension -j
+# 0. 克隆本项目
+git clone --depth=1 https://github.com/zhuzhonghua/theford.git
 
-# 1. 用 Godot 打开本项目（demo 模式）：
-/Applications/Godot.app/Contents/MacOS/Godot --path ~/clojureserver/theford
-# 或直接跑：
-/Applications/Godot.app/Contents/MacOS/Godot --path ~/clojureserver/theford scenes/main.tscn
+# 1. 克隆并构建 GDExtension（含 llama.cpp-scheme 与 godot-cpp 两个 submodule，
+#    与本项目并排放；输出直接写进本项目的 addons 目录）
+git clone https://github.com/zhuzhonghua/scmllama-extensions.git
+cd scmllama-extensions
+git submodule update --init --recursive
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DSCMLLAMA_GDENGINE_OUTPUT_DIR=../theford/addons/scmllama/bin
+cmake --build build --target scmllama_gdextension -j
+
+# 2. 用 Godot 4.5+ 打开 theford 目录，或命令行运行：
+#    macOS: /Applications/Godot.app/Contents/MacOS/Godot --path ../theford
+#    Linux: godot --path ../theford
 ```
+
+平台：目前仅在 macOS arm64 上验证（`.gdextension` 只注册了 macos 条目）；
+Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目。
 
 模型查找顺序：`$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf`（项目自带，不入 git）。
 
-## 玩法（本周切片）
+
+## 玩法
 
 - WASD/方向键走路，E 与 NPC 对话
 - 数字键 1-4 选话题；天气、活计、村子的事按话题问
 - 走过地上的石头/矿石自动拾取
-- 地图、NPC、矿石、玩家均在 `scenes/world.tscn` 中手工摆放（编辑器里直接拖动）
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
-- **F1** 打开“机制 HUD”：显示话题 → 意图、Scheme 判定（接受/拒绝/忽略）、
-  台词真实来源（LLM / learned 缓存 / 剧本 / 预置）、模型名，以及上游 `llm-perf`
-  读出的 prefill / decode 速度；
-  录屏/演示环境（`THEFORD_DEMO_*`、`THEFORD_RECORD_DIR`）默认打开，
-  `THEFORD_MECHANISM=0` 可强制关闭
+- **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
+  模型名与 prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
 
-## 结构
+## 已知边界
 
-```
-project.godot
-assets/            # Ninja Adventure (na/) + lsw 自绘素材 + fonts/ 字体
-models/            # 本地 LLM 权重（Qwen3-0.6B-Q4_K_M.gguf，不入 git）
-scenes/
-  main.tscn        # Main：World 实例 + HUD + 对话框
-  world.tscn       # 村庄静态场景：地形/树/矿石/NPC/玩家，直接在编辑器里摆放
-  world_tileset.tres
-  player.tscn npc.tscn ore.tscn
-scripts/
-  game_bridge.gd   # autoload "Game"：主线程 ↔ 逻辑线程的 RPC 边界（ScmLlama 独占一条线程）
-  main.gd          # 输入/对话/HUD 接线；阻挡规则读 world.tscn（水面 tile + obstacle 组）
-  player.gd npc.gd ore.gd dialog.gd
-scheme/game/main.scm   # 模块清单（require util/llm/npcs/quest/talk）；对话/任务逻辑分在 scheme/game/*.scm
-addons/scmllama/       # GDExtension（bin/ 下的 dylib 由 llama.cpp-scheme 构建产出）
-```
-
-## 已知边界（W1 切片如实记录）
-
-- 逻辑线程模型：ScmLlama 实例由专用 worker 线程创建/使用/销毁（dummyscheme 与
-  llama_context 非线程安全），主线程通过纯数据消息 `{fn,args,ticket}` 通信；
-  LLM 生成期间画面不卡，逐 token 流式输出已接通（`llm-stream-push` →
-  `ScmLlama.stream_poll()` → `stream_pieces` → 对话框逐段上字）
-- 消息形状即 RPC：将来把线程队列换成 WebSocket 即可把逻辑移到服务器，游戏代码不动
 - 中文用项目自带字体渲染：`assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2`
-  （Fusion Pixel，SIL OFL 许可，见 `assets/fonts/OFL.txt`），不再依赖系统字体
-- `res://` scheme 路径只在编辑器/调试模式下指向项目目录（导出版需改造为 PCK 内读文件）
-- 网页版跑不了原生库：按计划用录屏 + 可执行文件下载（plan §3.3 方案 B）
+  （Fusion Pixel，SIL OFL 许可，见 `assets/fonts/OFL.txt`），不依赖系统字体
+- `res://` scheme 路径只在编辑器/调试模式下指向项目目录；
+  导出可执行文件需把 scheme 文件打进 PCK 并改造读取路径
