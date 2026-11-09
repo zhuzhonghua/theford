@@ -26,6 +26,7 @@
 ;;   data/types.scm   is-a type hierarchy (actor/…, item/…, fixture/…), is-a
 ;;   data/maps.scm    map-level names: anchors, portals, zone, music, npc roster
 ;;   data/catalog.scm asset path mapping: characters, music, sfx, items
+;;   data/quests.scm  quest definitions: objectives + stages (smith-ore chain)
 ;;   data/people.scm  roster: names, personas, canned lines (loaded by npcs.scm)
 ;;   util.scm   string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
@@ -41,6 +42,7 @@
 (require "game.data.types")
 (require "game.data.maps")
 (require "game.data.catalog")
+(require "game.data.quests")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")

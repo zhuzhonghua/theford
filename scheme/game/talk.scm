@@ -9,20 +9,22 @@
 (require "game.quest")
 
 ;; ---- topic menu per NPC, depending on quest state ---------------------------
+;; Topics for the smith come from the current quest stage's data; the
+;; {carried} placeholder in the "give" label is interpolated here.
 
 (define (game:topics npc)
   (cond ((equal? npc "smith")
-         (append
-           (list (cons 'greet "打个招呼")
-                 (cons 'village "聊聊村子")
-                 (cons 'work "问问活计"))
-           (cond ((eq? *quest-state* 'not-offered)
-                  (list (cons 'quest "接任务")))
-                 ((eq? *quest-state* 'accepted)
-                  (if (> *carried* 0)
-                      (list (cons 'give (string-append "交矿石（背上 " (number->string *carried*) " 块）")))
-                      (list (cons 'quest "聊聊进度"))))
-                 (else '()))))
+         (let ((stage (current-stage)))
+           (cond ((eq? *quest-state* 'accepted)
+                  (let ((topics (if (> *carried* 0)
+                                    (alist-get stage 'topics-carry)
+                                    (alist-get stage 'topics-empty))))
+                    (map (lambda (p)
+                           (cons (car p)
+                             (string-replace-all (cdr p) "{carried}"
+                               (number->string *carried*))))
+                         topics)))
+                 (else (alist-get stage 'topics)))))
         (else
           (list (cons 'greet "打个招呼")
                 (cons 'village "聊聊村子")
@@ -35,14 +37,12 @@
         (else 'greet)))
 
 ;; ---- greetings (canned; cheap, no LLM) --------------------------------------
+;; The smith's greeting comes from the current quest stage's greet field.
 
 (define (game:greet npc)
   (let ((line (cond ((equal? npc "smith")
-                     (cond ((eq? *quest-state* 'not-offered)
-                            "老王：来了？坐。炉火不等人，有什么话快说。")
-                           ((eq? *quest-state* 'accepted)
-                            "老王：矿石找着了没？河边滩上冲下来的石头里看好料。")
-                           (else "老王：哈哈，成事之人。到屋里坐，我去给你拿剑。")))
+                     (let ((stage (current-stage)))
+                       (or (alist-get stage 'greet) "……")))
                     (else
                      (let ((fb (alist-get (npc-fallback npc) 'greet)))
                        (or fb "……"))))))
@@ -160,16 +160,13 @@
 
 ;; The LLM is told what happened (verdict), but the canonical line for quest
 ;; milestones is scripted — the same reason cutscenes are scripted.
+;; Accepted milestones use the current stage's `say` line from quest data;
+;; rejected milestones use the current stage's `say-reject` line.
 (define (canned-quest-line npc verdict)
   (cond ((eq? (car verdict) 'accepted)
-         (cond ((eq? *quest-state* 'accepted)
-                "老王：好嘞！三块铁矿石，河边滩上冲下来的石头里看好料。找着了拿来我这儿。")
-               ((eq? *quest-state* 'completed)
-                "老王：得了！矿石齐了，剑也成了。给你——往后就是渡口村的人了。")))
+         (let ((stage (current-stage)))
+           (string-append "老王：" (or (alist-get stage 'say) ""))))
         ((eq? (car verdict) 'rejected)
-         (cond ((eq? *quest-state* 'completed)
-                "老王：矿石早收齐了，剑不是已经给你了吗？")
-               ((eq? *quest-state* 'not-offered)
-                "老王：活儿还没接呢，先把矿石找来再说。")
-               (else "老王：这可不行，先把矿石找来。")))
+         (let ((stage (current-stage)))
+           (string-append "老王：" (or (alist-get stage 'say-reject) "不行。"))))
         (else (fallback-line npc 'work))))

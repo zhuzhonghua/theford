@@ -8,8 +8,10 @@
 ;; (alist-get alist key) — value for key, or #f. Thin wrapper over native
 ;; assoc; keeps call sites from spelling out (let ((hit (assoc key alist))) ...).
 (define (alist-get alist key)
-  (let ((hit (assoc key alist)))
-    (if hit (cdr hit) #f)))
+  (if (or (not alist) (null? alist))
+      #f
+      (let ((hit (assoc key alist)))
+        (if hit (cdr hit) #f))))
 
 (define (alist-put alist key val)
   (cond ((null? alist) (list (cons key val)))
@@ -51,6 +53,17 @@
                        ((whitespace? (string-ref s i)) (loop (- i 1)))
                        (else (+ i 1))))))
       (if (>= start end) "" (substring s start end)))))
+
+(define (string-replace-all s old new)
+  (let ((ln (string-length old)))
+    (if (= ln 0)
+        s
+        (let loop ((start 0) (acc ""))
+          (let ((idx (string-index-from s old start)))
+            (if (not idx)
+                (string-append acc (substring s start (string-length s)))
+                (loop (+ idx ln)
+                      (string-append acc (substring s start idx) new))))))))
 
 ;; ---- lists ------------------------------------------------------------------
 
