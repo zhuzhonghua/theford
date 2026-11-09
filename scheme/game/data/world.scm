@@ -3,7 +3,7 @@
 ;; Mirrors the shape of openworld's games/starter/game.json:
 ;;   seed, start{map,x,y}, startHour, params{reach,carry,riseHour}
 ;; The map itself and NPC placement stay authored in Godot (scenes/world.tscn);
-;; Scheme owns only these numbers. Loaded by main.scm before the game modules.
+;; Scheme owns these numbers because they drive game logic (time, reach, carry).
 
 (define *world*
   (list (cons 'seed 7)

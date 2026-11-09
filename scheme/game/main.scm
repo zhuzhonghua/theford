@@ -1,8 +1,11 @@
 ;; main.scm — The Ford (渡口) game logic: module manifest.
 ;;
 ;; Layer rule (plan_oss_edu_game.md section 3.1):
-;;   Godot is presentation only. State changes live in Scheme:
-;;   deterministic, serializable, replayable.
+;;   Godot is presentation and world queries: rendering, input, collision,
+;;   pathfinding, UI.
+;;   Scheme is the scheduling layer: quest state, NPC schedules, dialogue and
+;;   everything that feeds the LLM. It never duplicates world geometry; when it
+;;   needs walkability or a path it asks Godot through the bridge.
 ;;   The LLM turns topics into NPC lines. It proposes; Scheme decides.
 ;;
 ;; API used by scripts/game_bridge.gd (defined in the modules below):
@@ -19,10 +22,11 @@
 ;; the canned reply table, and the quest still completes end to end.
 ;;
 ;; Modules (each may be read on its own; require caches by module name):
-;;   data/world.scm  world parameters (seed, start, startHour, params)
+;;   data/world.scm   world parameters (seed, start, startHour, params)
+;;   data/people.scm  roster: names, personas, canned lines (loaded by npcs.scm)
 ;;   util.scm   string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
-;;   npcs.scm   roster, fallback lines, personas, topic utterances
+;;   npcs.scm   npc lookups (display/persona/lines) over data/people.scm
 ;;   quest.scm  quest state machine, carried/delivered counts, history
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
 ;;

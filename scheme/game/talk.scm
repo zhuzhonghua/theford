@@ -51,7 +51,7 @@
 ;; ---- prompt / fallback ------------------------------------------------------
 
 (define (build-prompt npc player-text status)
-  (let ((persona (or (alist-get *personas* npc) "你是村里的一位 NPC。")))
+  (let ((persona (npc-persona npc)))
     (string-append
       "<|im_start|>system\n"
       persona *sys-instruction* "<|im_end|>\n"
@@ -146,7 +146,7 @@
          (prefill-perf (car perf))
          (decode-perf (cadr perf)))
     (hist-add npc "玩家" player-text)
-    (hist-add npc (or (alist-get *npc-display* npc) npc) (car reply))
+    (hist-add npc (npc-display npc) (car reply))
     ;; The 4th element drives the "📖 记住了" marker; the 5th is the HUD's
     ;; mechanism trace. Symbols become plain strings through the GDExtension.
     (list (car reply) (quest-text) *carried* (caddr reply)

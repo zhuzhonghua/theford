@@ -5,10 +5,11 @@
 
 ;; ---- association lists ------------------------------------------------------
 
+;; (alist-get alist key) — value for key, or #f. Thin wrapper over native
+;; assoc; keeps call sites from spelling out (let ((hit (assoc key alist))) ...).
 (define (alist-get alist key)
-  (cond ((null? alist) #f)
-        ((equal? (caar alist) key) (cdar alist))
-        (else (alist-get (cdr alist) key))))
+  (let ((hit (assoc key alist)))
+    (if hit (cdr hit) #f)))
 
 (define (alist-put alist key val)
   (cond ((null? alist) (list (cons key val)))
