@@ -1,8 +1,7 @@
 ;; npcs.scm — lookups over the roster data in data/people.scm.
 ;;
-;; The data itself (names, personas, canned lines, player utterances) is not
-;; here: this file only answers "who is this npc" questions. Conversation flow
-;; lives in talk.scm.
+;; The data itself (names, personas, canned lines) is not here: this file only
+;; answers "who is this npc" questions. Conversation flow lives in talk.scm.
 
 (require "game.util")
 (require "game.data.people")

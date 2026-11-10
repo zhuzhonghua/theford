@@ -4,35 +4,27 @@
 ;; then the LLM narrates — it may never see a state it did not produce.
 
 (require "game.util")
+(require "game.data.dialogue")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
 
 ;; ---- topic menu per NPC, depending on quest state ---------------------------
-;; Topics for the smith come from the current quest stage's data; the
-;; {carried} placeholder in the "give" label is interpolated here.
+;; The quest giver's menu comes from the current stage's data (the accepted
+;; stage has distinct carry/empty menus); everyone else uses the shared menu.
+;; The {carried} placeholder in the give label is interpolated here.
 
 ;; GDScript passes npc ids as strings; convert once here, symbols inside.
 (define (game:topics npc)
   (topics-for (string->symbol npc)))
 
 (define (topics-for npc)
-  (cond ((eq? npc 'smith)
-         (let ((stage (current-stage)))
-           (cond ((eq? *quest-state* 'accepted)
-                  (let ((topics (if (> *carried* 0)
-                                    (table-ref stage 'topics-carry)
-                                    (table-ref stage 'topics-empty))))
-                    (map (lambda (p)
-                           (cons (car p)
-                             (string-replace-all (cdr p) "{carried}"
-                               (number->string *carried*))))
-                         topics)))
-                 (else (table-ref stage 'topics)))))
-        (else
-          (list (cons 'greet "打个招呼")
-                (cons 'village "聊聊村子")
-                (cons 'work "问问活计")))))
+  (let ((menu (or (and (eq? npc (quest-giver)) (quest-topic-menu))
+                  *default-topics*)))
+    (let ((carried (number->string *carried*)))
+      (map (lambda (p)
+             (cons (car p) (string-replace-all (cdr p) "{carried}" carried)))
+           menu))))
 
 ;; The bridge passes topics back as symbols; strings also tolerated.
 (define (topic-key t)
@@ -41,44 +33,38 @@
         (else 'greet)))
 
 ;; ---- greetings (canned; cheap, no LLM) --------------------------------------
-;; The smith's greeting comes from the current quest stage's greet field.
+;; The quest giver's greeting follows the current stage; others use their
+;; canned line from the roster.
 
 (define (game:greet npc)
   (greeting-for (string->symbol npc)))
 
 (define (greeting-for npc)
-  (let ((line (cond ((eq? npc 'smith)
-                     (let ((stage (current-stage)))
-                       (or (table-ref stage 'greet) "……")))
-                    (else
-                     (let ((fb (table-ref (npc-fallback npc) 'greet)))
-                       (or fb "……"))))))
+  (let ((line (or (and (eq? npc (quest-giver))
+                       (table-ref (current-stage) 'greet))
+                  (table-ref (npc-fallback npc) 'greet)
+                  "……")))
     (list line (quest-text) *carried*)))
 
 ;; ---- prompt / fallback ------------------------------------------------------
 
+;; The template itself (and every literal in it) lives in data/dialogue.scm;
+;; this function only supplies the per-turn values.
 (define (build-prompt npc player-text status)
-  (let ((persona (npc-persona npc)))
-    (string-append
-      "<|im_start|>system\n"
-      persona *sys-instruction* "<|im_end|>\n"
-      "<|im_start|>user\n"
-      "当前任务状态：" (quest-text) "\n"
-      "玩家背包：铁矿石 x" (number->string *carried*) "\n"
-      "刚刚的判定：Scheme 结果=" (symbol->string (car status))
-      "，原因=" (cdr status) "\n"
-      (verdict-hint (car status)) "\n\n"
-      "对话记录：\n"
-      (hist-recent npc 6) "\n"
-      "玩家：" player-text "<|im_end|>\n"
-      ;; Qwen3 thinking-off prefill (same trick as test/npc-demo.scm):
-      "<|im_start|>assistant\n<think>\n\n</think>")))
+  (string-fill *prompt-template*
+    (list (cons "{persona}" (npc-persona npc))
+          (cons "{sys}" *sys-instruction*)
+          (cons "{quest}" (quest-text))
+          (cons "{item}" (quest-field 'pack-item ""))
+          (cons "{carried}" (number->string *carried*))
+          (cons "{status}" (symbol->string (car status)))
+          (cons "{reason}" (cdr status))
+          (cons "{hint}" (verdict-hint (car status)))
+          (cons "{history}" (hist-recent npc 6))
+          (cons "{player}" player-text))))
 
 (define (fallback-line npc topic)
-  (or (table-ref (npc-fallback npc) topic)
-      (cond ((eq? topic 'quest) "老王：正忙，过会儿再说。")
-            ((eq? topic 'give)  "老王：先把矿石找来再说。")
-            (else "……"))))
+  (or (table-ref (npc-fallback npc) topic) "……"))
 
 ;; ---- learned lines (cache) --------------------------------------------------
 ;; An LLM-generated line is proposed once, then it belongs to the village.
@@ -131,9 +117,9 @@
                        (else 'chat)))
          (verdict (apply-intent intent))
          (player-text
-           (cond ((eq? intent 'accept) "我想接下你的任务。")
+           (cond ((eq? intent 'accept) (quest-field 'accept-text "……"))
                  ((and (eq? intent 'give) (eq? (car verdict) 'accepted))
-                  "给你，矿石都在这儿。")
+                  (quest-field 'give-text "……"))
                  ((or (eq? t 'quest) (eq? t 'give)) (or (table-ref *topic-utterances* 'work) "……"))
                  (else (or (table-ref *topic-utterances* t) "……"))))
          ;; Path 2: quest happenings stay canned (deterministic by design);
@@ -154,7 +140,7 @@
                    (list 0.0 0.0)))
          (prefill-perf (car perf))
          (decode-perf (cadr perf)))
-    (hist-add npc "玩家" player-text)
+    (hist-add npc *player-speaker* player-text)
     (hist-add npc (npc-display npc) (car reply))
     ;; The 4th element drives the "📖 记住了" marker; the 5th is the HUD's
     ;; mechanism trace. Symbols become plain strings through the GDExtension.
@@ -171,12 +157,13 @@
 ;; The LLM is told what happened (verdict), but the canonical line for quest
 ;; milestones is scripted — the same reason cutscenes are scripted.
 ;; Accepted milestones use the current stage's `say` line from quest data;
-;; rejected milestones use the current stage's `say-reject` line.
+;; rejected milestones use the current stage's `say-reject` line. The speaker
+;; prefix is the giver's display name, not a literal.
 (define (canned-quest-line npc verdict)
-  (cond ((eq? (car verdict) 'accepted)
-         (let ((stage (current-stage)))
-           (string-append "老王：" (or (table-ref stage 'say) ""))))
-        ((eq? (car verdict) 'rejected)
-         (let ((stage (current-stage)))
-           (string-append "老王：" (or (table-ref stage 'say-reject) "不行。"))))
-        (else (fallback-line npc 'work))))
+  (let ((stage (current-stage))
+        (prefix (string-append (npc-display npc) "：")))
+    (cond ((eq? (car verdict) 'accepted)
+           (string-append prefix (or (table-ref stage 'say) "")))
+          ((eq? (car verdict) 'rejected)
+           (string-append prefix (or (table-ref stage 'say-reject) "")))
+          (else (fallback-line npc 'work)))))

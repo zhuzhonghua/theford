@@ -14,8 +14,8 @@
 ;;   persona  system prompt that defines the character
 ;;   lines    topic symbol -> canned line (used when the LLM is off or fails)
 ;;
-;; The player utterances that feed topic prompts and the shared system suffix
-;; are prompt material, so they live here too.
+;; Shared conversation text (topic menu labels, player utterances, system
+;; instruction, prompt template) lives in data/dialogue.scm.
 
 (require "game.util")
 
@@ -46,12 +46,3 @@
                  (greet   = "张掌柜：客官住店？前头还有空房。")
                  (village = "张掌柜：渡口村，面小事多。规矩就一条：别惹老王。")
                  (work    = "张掌柜：他那把剑还没打完呢。你也去帮帮忙吧。"))))))
-
-(define *sys-instruction*
-  "你就是这个 NPC。只输出对玩家说的一句台词，不要加引号，不要加名字前缀，只用简短的日常中文，不要思考，不要替玩家说话。")
-
-(define *topic-utterances*
-  (table
-    (greet = "我路过村子，跟你打个招呼吧。")
-    (village = "给我讲讲渡口村的事吧。")
-    (work = "你最近手头的活计还顺利么？")))

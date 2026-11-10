@@ -99,6 +99,14 @@
                 (loop (+ idx ln)
                       (string-append acc (substring s start idx) new))))))))
 
+;; (string-fill template subs) — replace each {placeholder} in template, where
+;; subs is an alist of ("{name}" . value). One pass per entry, in order.
+(define (string-fill template subs)
+  (if (null? subs)
+      template
+      (string-fill (string-replace-all template (caar subs) (cdar subs))
+                   (cdr subs))))
+
 ;; ---- lists ------------------------------------------------------------------
 
 (define (take-n l k)

@@ -21,21 +21,25 @@
 ;; The active quest is the smith-ore chain (only one quest for now).
 (define *active-quest* 'smith-ore)
 
-;; Stage numbers map to the legacy state symbols talk.scm still reads.
-(define *stage->state*
-  (table
-    (10 = 'not-offered)
-    (20 = 'accepted)
-    (100 = 'completed)))
-
 (define (quest-def)
   (table-ref *quests* *active-quest*))
 
+;; One field of the active quest's definition, with a structural default.
+(define (quest-field key default)
+  (table-ref (quest-def) key default))
+
+;; Mechanism-trace text and LLM steering lines are quest data too.
+(define (quest-reason key)
+  (table-ref (quest-field 'reasons (table)) key ""))
+
+(define (quest-giver)
+  (quest-field 'giver 'smith))
+
 (define (quest-stages)
-  (table-ref (quest-def) 'stages '()))
+  (quest-field 'stages (table)))
 
 (define (quest-objectives)
-  (table-ref (quest-def) 'objectives '()))
+  (quest-field 'objectives (table)))
 
 (define (current-stage-num)
   *stage*)
@@ -43,20 +47,31 @@
 (define (current-stage)
   (table-ref (quest-stages) (current-stage-num)))
 
+;; Current stage's topic menu. The accepted stage has separate menus for
+;; "carrying" and "empty", so the give entry only shows when it can be used.
+(define (quest-topic-menu)
+  (let* ((stage (current-stage))
+         (key (cond ((not (eq? *quest-state* 'accepted)) 'topics)
+                    ((> *carried* 0) 'topics-carry)
+                    (else 'topics-empty))))
+    (table-ref stage key)))
+
 (define (objective-need obj-id)
   (let ((obj (table-ref (quest-objectives) obj-id)))
     (if obj (table-ref obj 'need 0) 0)))
 
 ;; ---- mutable state -----------------------------------------------------------
 
-(define *stage* 10)                  ; current stage number
+(define *stage* (quest-field 'start 10))  ; current stage number
 (define *carried* 0)
 (define *delivered* 0)
 (define *histories* '())
 
-;; Derive the legacy state symbol from the current stage number.
+;; The state symbol comes from the stage's own data, so new stages need no
+;; mapping table in code.
 (define (stage->state n)
-  (table-ref *stage->state* n 'not-offered))
+  (let ((stage (table-ref (quest-stages) n)))
+    (if stage (table-ref stage 'state 'not-offered) 'not-offered)))
 
 (define *quest-state* (stage->state *stage*))
 
@@ -123,18 +138,20 @@
 
 ;; intent application: the ONLY place quest state changes.
 ;; returns (status . reason); status in (accepted rejected ignored)
+;; Reason text is quest data (data/quests.scm reasons), so the mechanism HUD
+;; stays script-agnostic.
 (define (apply-intent intent)
   (let ((stage (current-stage)))
     (cond ((eq? intent 'accept)
            (cond ((eq? *quest-state* 'not-offered)
                   (let ((reason (advance-to! (table-ref stage 'on-accept))))
-                    (cons 'accepted (if (string=? reason "") "玩家接受了任务" reason))))
-                 ((eq? *quest-state* 'accepted) (cons 'ignored "任务已经接过"))
-                 ((eq? *quest-state* 'completed) (cons 'rejected "任务早已完成"))
+                    (cons 'accepted (if (string=? reason "") (quest-reason 'accept-ok) reason))))
+                 ((eq? *quest-state* 'accepted) (cons 'ignored (quest-reason 'accept-dup)))
+                 ((eq? *quest-state* 'completed) (cons 'rejected (quest-reason 'accept-done)))
                  (else (cons 'ignored ""))))
           ((eq? intent 'give)
            (cond ((eq? *quest-state* 'accepted)
-                  (cond ((<= *carried* 0) (cons 'rejected "玩家背上没有矿石"))
+                  (cond ((<= *carried* 0) (cons 'rejected (quest-reason 'give-empty)))
                         (else
                           (let* ((obj-id (table-ref stage 'objective))
                                  (need (objective-need obj-id))
@@ -146,18 +163,17 @@
                                 (let ((reason (advance-to! (table-ref stage 'on-give-complete))))
                                   (cons 'accepted reason))
                                 (cons 'accepted
-                                  (string-append "收下 " (number->string n) " 块矿石（"
-                                    (number->string *delivered*) " / "
-                                    (number->string need) "）")))))))
-                 ((eq? *quest-state* 'not-offered) (cons 'rejected "任务还没接，不能收矿石"))
-                 ((eq? *quest-state* 'completed)   (cons 'rejected "任务已完成"))
+                                  (string-fill (quest-reason 'give-partial)
+                                    (list (cons "{n}" (number->string n))
+                                          (cons "{delivered}" (number->string *delivered*))
+                                          (cons "{need}" (number->string need))))))))))
+                 ((eq? *quest-state* 'not-offered) (cons 'rejected (quest-reason 'give-not-accepted)))
+                 ((eq? *quest-state* 'completed)   (cons 'rejected (quest-reason 'give-done)))
                  (else (cons 'ignored ""))))
-          (else (cons 'ignored "闲聊，不动状态")))))
+          (else (cons 'ignored (quest-reason 'idle))))))
 
 (define (verdict-hint status)
-  (cond ((eq? status 'accepted) "老王的请求得到了满足，简短回应，语气高兴。")
-        ((eq? status 'rejected) "老王必须拒绝，例如：不行，你还没接这活儿呢。")
-        (else "只是闲聊，老王正常回应即可。")))
+  (table-ref (quest-field 'hints (table)) status ""))
 
 ;; ---- pickups and status ------------------------------------------------------
 
