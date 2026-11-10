@@ -19,32 +19,33 @@
 (require "game.data.quests")
 
 ;; The active quest is the smith-ore chain (only one quest for now).
-(define *active-quest* "smith-ore")
+(define *active-quest* 'smith-ore)
 
 ;; Stage numbers map to the legacy state symbols talk.scm still reads.
 (define *stage->state*
-  (list (cons 10 'not-offered)
-        (cons 20 'accepted)
-        (cons 100 'completed)))
+  (table
+    (10 = 'not-offered)
+    (20 = 'accepted)
+    (100 = 'completed)))
 
 (define (quest-def)
-  (alist-get *quests* *active-quest*))
+  (table-ref *quests* *active-quest*))
 
 (define (quest-stages)
-  (or (alist-get (quest-def) 'stages) '()))
+  (table-ref (quest-def) 'stages '()))
 
 (define (quest-objectives)
-  (or (alist-get (quest-def) 'objectives) '()))
+  (table-ref (quest-def) 'objectives '()))
 
 (define (current-stage-num)
   *stage*)
 
 (define (current-stage)
-  (alist-get (quest-stages) (current-stage-num)))
+  (table-ref (quest-stages) (current-stage-num)))
 
 (define (objective-need obj-id)
-  (let ((obj (alist-get (quest-objectives) obj-id)))
-    (or (and obj (alist-get obj 'need)) 0)))
+  (let ((obj (table-ref (quest-objectives) obj-id)))
+    (if obj (table-ref obj 'need 0) 0)))
 
 ;; ---- mutable state -----------------------------------------------------------
 
@@ -55,7 +56,7 @@
 
 ;; Derive the legacy state symbol from the current stage number.
 (define (stage->state n)
-  (or (alist-get *stage->state* n) 'not-offered))
+  (table-ref *stage->state* n 'not-offered))
 
 (define *quest-state* (stage->state *stage*))
 
@@ -88,7 +89,7 @@
 ;; quest-text, using the active objective's need.
 (define (interpolate-quest-text s)
   (let* ((stage (current-stage))
-         (obj-id (alist-get stage 'objective))
+         (obj-id (table-ref stage 'objective))
          (need (objective-need obj-id)))
     (string-replace-all
       (string-replace-all
@@ -98,19 +99,19 @@
 
 (define (quest-text)
   (let ((stage (current-stage)))
-    (interpolate-quest-text (or (alist-get stage 'quest-text) ""))))
+    (interpolate-quest-text (or (table-ref stage 'quest-text) ""))))
 
 ;; ---- intent application ------------------------------------------------------
 
 ;; Apply stage-entry effects: take items from carried, grant rewards.
 (define (apply-stage-effects! stage)
-  (let ((take (alist-get stage 'take)))
+  (let ((take (table-ref stage 'take)))
     (when take
-      (let ((n (min *carried* (or (alist-get take 'count) 0))))
+      (let ((n (min *carried* (table-ref take 'count 0))))
         (set! *carried* (- *carried* n))
         (set! *delivered* (+ *delivered* n)))))
   ;; reward is recorded (no inventory yet, so just acknowledged).
-  (let ((reward (alist-get stage 'reward)))
+  (let ((reward (table-ref stage 'reward)))
     (when reward #t)))
 
 ;; Advance to a target stage, applying its entry effects. Returns reason.
@@ -118,7 +119,7 @@
   (set-stage! target-n)
   (let ((stage (current-stage)))
     (apply-stage-effects! stage)
-    (or (alist-get stage 'say) "")))
+    (or (table-ref stage 'say) "")))
 
 ;; intent application: the ONLY place quest state changes.
 ;; returns (status . reason); status in (accepted rejected ignored)
@@ -126,7 +127,7 @@
   (let ((stage (current-stage)))
     (cond ((eq? intent 'accept)
            (cond ((eq? *quest-state* 'not-offered)
-                  (let ((reason (advance-to! (alist-get stage 'on-accept))))
+                  (let ((reason (advance-to! (table-ref stage 'on-accept))))
                     (cons 'accepted (if (string=? reason "") "玩家接受了任务" reason))))
                  ((eq? *quest-state* 'accepted) (cons 'ignored "任务已经接过"))
                  ((eq? *quest-state* 'completed) (cons 'rejected "任务早已完成"))
@@ -135,14 +136,14 @@
            (cond ((eq? *quest-state* 'accepted)
                   (cond ((<= *carried* 0) (cons 'rejected "玩家背上没有矿石"))
                         (else
-                          (let* ((obj-id (alist-get stage 'objective))
+                          (let* ((obj-id (table-ref stage 'objective))
                                  (need (objective-need obj-id))
                                  (remaining (- need *delivered*))
                                  (n (min *carried* remaining)))
                             (set! *carried* (- *carried* n))
                             (set! *delivered* (+ *delivered* n))
                             (if (>= *delivered* need)
-                                (let ((reason (advance-to! (alist-get stage 'on-give-complete))))
+                                (let ((reason (advance-to! (table-ref stage 'on-give-complete))))
                                   (cons 'accepted reason))
                                 (cons 'accepted
                                   (string-append "收下 " (number->string n) " 块矿石（"

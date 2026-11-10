@@ -12,19 +12,23 @@
 ;; Topics for the smith come from the current quest stage's data; the
 ;; {carried} placeholder in the "give" label is interpolated here.
 
+;; GDScript passes npc ids as strings; convert once here, symbols inside.
 (define (game:topics npc)
-  (cond ((equal? npc "smith")
+  (topics-for (string->symbol npc)))
+
+(define (topics-for npc)
+  (cond ((eq? npc 'smith)
          (let ((stage (current-stage)))
            (cond ((eq? *quest-state* 'accepted)
                   (let ((topics (if (> *carried* 0)
-                                    (alist-get stage 'topics-carry)
-                                    (alist-get stage 'topics-empty))))
+                                    (table-ref stage 'topics-carry)
+                                    (table-ref stage 'topics-empty))))
                     (map (lambda (p)
                            (cons (car p)
                              (string-replace-all (cdr p) "{carried}"
                                (number->string *carried*))))
                          topics)))
-                 (else (alist-get stage 'topics)))))
+                 (else (table-ref stage 'topics)))))
         (else
           (list (cons 'greet "打个招呼")
                 (cons 'village "聊聊村子")
@@ -40,11 +44,14 @@
 ;; The smith's greeting comes from the current quest stage's greet field.
 
 (define (game:greet npc)
-  (let ((line (cond ((equal? npc "smith")
+  (greeting-for (string->symbol npc)))
+
+(define (greeting-for npc)
+  (let ((line (cond ((eq? npc 'smith)
                      (let ((stage (current-stage)))
-                       (or (alist-get stage 'greet) "……")))
+                       (or (table-ref stage 'greet) "……")))
                     (else
-                     (let ((fb (alist-get (npc-fallback npc) 'greet)))
+                     (let ((fb (table-ref (npc-fallback npc) 'greet)))
                        (or fb "……"))))))
     (list line (quest-text) *carried*)))
 
@@ -68,7 +75,7 @@
       "<|im_start|>assistant\n<think>\n\n</think>")))
 
 (define (fallback-line npc topic)
-  (or (alist-get (npc-fallback npc) topic)
+  (or (table-ref (npc-fallback npc) topic)
       (cond ((eq? topic 'quest) "老王：正忙，过会儿再说。")
             ((eq? topic 'give)  "老王：先把矿石找来再说。")
             (else "……"))))
@@ -81,7 +88,7 @@
 (define *learned* '())
 
 (define (learn-key npc t)
-  (string-append npc "/" (symbol->string t) "/"
+  (string-append (symbol->string npc) "/" (symbol->string t) "/"
     (cond ((eq? *quest-state* 'completed) "2")
           ((eq? *quest-state* 'accepted)  "1")
           (else "0"))))
@@ -114,8 +121,11 @@
 ;; where decision =
 ;;   (topic intent verdict-status reason source model-desc prefill-tps decode-tps).
 (define (game:talk npc topic)
+  (talk (string->symbol npc) topic))
+
+(define (talk npc topic)
   (let* ((t (topic-key topic))
-         (quest-topic (and (equal? npc "smith") (or (eq? t 'quest) (eq? t 'give))))
+         (quest-topic (and (eq? npc 'smith) (or (eq? t 'quest) (eq? t 'give))))
          (intent (cond ((and (eq? t 'quest) (eq? *quest-state* 'not-offered)) 'accept)
                        ((eq? t 'give) 'give)
                        (else 'chat)))
@@ -124,8 +134,8 @@
            (cond ((eq? intent 'accept) "我想接下你的任务。")
                  ((and (eq? intent 'give) (eq? (car verdict) 'accepted))
                   "给你，矿石都在这儿。")
-                 ((or (eq? t 'quest) (eq? t 'give)) (or (alist-get *topic-utterances* 'work) "……"))
-                 (else (or (alist-get *topic-utterances* t) "……"))))
+                 ((or (eq? t 'quest) (eq? t 'give)) (or (table-ref *topic-utterances* 'work) "……"))
+                 (else (or (table-ref *topic-utterances* t) "……"))))
          ;; Path 2: quest happenings stay canned (deterministic by design);
          ;; Path 3: village / work / plain chat goes through the LLM,
          ;; then through the learned cache.
@@ -165,8 +175,8 @@
 (define (canned-quest-line npc verdict)
   (cond ((eq? (car verdict) 'accepted)
          (let ((stage (current-stage)))
-           (string-append "老王：" (or (alist-get stage 'say) ""))))
+           (string-append "老王：" (or (table-ref stage 'say) ""))))
         ((eq? (car verdict) 'rejected)
          (let ((stage (current-stage)))
-           (string-append "老王：" (or (alist-get stage 'say-reject) "不行。"))))
+           (string-append "老王：" (or (table-ref stage 'say-reject) "不行。"))))
         (else (fallback-line npc 'work))))

@@ -1,101 +1,114 @@
 ;; types.scm — the is-a hierarchy of things in the world.
 ;;
-;; Type ids are slash paths ("item/tool/axe"), so the hierarchy is encoded
-;; in the id itself. `is-a` is therefore a prefix check on the path: a type
-;; is-a its ancestor when the ancestor is the type itself or a strict prefix
-;; followed by "/".
+;; Type ids are slash paths (item/tool/axe, as symbols), so the hierarchy is
+;; encoded in the id itself. `is-a` is therefore a prefix check on the path: a
+;; type is-a its ancestor when the ancestor is the type itself or a strict
+;; prefix followed by "/".
 ;;
 ;; Each type carries default `props`, `tags`, and an optional `sprite` /
 ;; `solid`. Inheritance (merging props/tags down the chain) is left for the
 ;; rule/engine phases; this file only defines the nodes and answers is-a.
+;;
+;; Data DSL: `table` (util.scm); `props` nests another table.
 
 (require "game.util")
 
-;; Type registry: id -> alist of (name tags props sprite solid).
+;; Type registry: id -> table of (name tags props sprite solid).
 (define *types*
-  (list
-    (cons "actor/person/villager"
-      (list (cons 'name "villager")
-            (cons 'tags '("faction:folk"))))
-    (cons "actor/creature/slime"
-      (list (cons 'name "slime")
-            (cons 'tags '("slime" "faction:wild"))
-            (cons 'sprite "creature:slime")
-            (cons 'props (list (cons 'hp 8)
-                               (cons 'maxHp 8)
-                               (cons 'atk 1)
-                               (cons 'speed 7)))))
-    (cons "item/tool"
-      (list (cons 'name "tool")
-            (cons 'tags '("tool"))))
-    (cons "item/tool/axe"
-      (list (cons 'name "Axe")
-            (cons 'tags '("tool:axe"))
-            (cons 'sprite "item:axe")
-            (cons 'props (list (cons 'power 3)))))
-    (cons "item/material"
-      (list (cons 'name "material")
-            (cons 'tags '("material"))))
-    (cons "item/material/ore"
-      (list (cons 'name "铁矿石")
-            (cons 'tags '("ore" "material:iron"))
-            (cons 'sprite "item:ore")
-            (cons 'props (list (cons 'material "iron")))))
-    (cons "item/material/log"
-      (list (cons 'name "Log")
-            (cons 'tags '("wooden" "flammable"))
-            (cons 'sprite "item:log")
-            (cons 'props (list (cons 'material "wood")))))
-    (cons "item/material/stone"
-      (list (cons 'name "Stone")
-            (cons 'tags '("stone"))
-            (cons 'sprite "item:stone")
-            (cons 'props (list (cons 'material "stone")))))
-    (cons "item/material/gel"
-      (list (cons 'name "Slime Gel")
-            (cons 'tags '("gelatinous"))
-            (cons 'sprite "item:gel")))
-    (cons "fixture/container/chest"
-      (list (cons 'name "chest")
-            (cons 'tags '("wooden" "flammable"))
-            (cons 'sprite "fixture:chest")
-            (cons 'props (list (cons 'capacity 8)))))
-    (cons "fixture/sign"
-      (list (cons 'name "sign")
-            (cons 'tags '("wooden" "readable"))
-            (cons 'solid #t)
-            (cons 'sprite "fixture:sign")
-            (cons 'props (list (cons 'handsRange 2)))))
-    (cons "fixture/furniture"
-      (list (cons 'name "furniture")
-            (cons 'tags '("wooden"))
-            (cons 'solid #t)))
-    (cons "fixture/furniture/bed"
-      (list (cons 'name "bed")
-            (cons 'tags '("cloth"))
-            (cons 'solid #f)
-            (cons 'sprite "fixture:bed")
-            (cons 'props (list (cons 'handsRange 0)))))
-    (cons "fixture/furniture/table"
-      (list (cons 'name "table")
-            (cons 'tags '("surface"))
-            (cons 'sprite "fixture:table")))))
+  (table
+    (actor/person/villager
+      (name = "villager")
+      (tags = '("faction:folk")))
+    (actor/creature/slime
+      (name = "slime")
+      (tags = '("slime" "faction:wild"))
+      (sprite = "creature:slime")
+      (props = (table
+                 (hp = 8)
+                 (maxHp = 8)
+                 (atk = 1)
+                 (speed = 7))))
+    (item/tool
+      (name = "tool")
+      (tags = '("tool")))
+    (item/tool/axe
+      (name = "Axe")
+      (tags = '("tool:axe"))
+      (sprite = "item:axe")
+      (props = (table
+                 (power = 3))))
+    (item/material
+      (name = "material")
+      (tags = '("material")))
+    (item/material/ore
+      (name = "铁矿石")
+      (tags = '("ore" "material:iron"))
+      (sprite = "item:ore")
+      (props = (table
+                 (material = "iron"))))
+    (item/material/log
+      (name = "Log")
+      (tags = '("wooden" "flammable"))
+      (sprite = "item:log")
+      (props = (table
+                 (material = "wood"))))
+    (item/material/stone
+      (name = "Stone")
+      (tags = '("stone"))
+      (sprite = "item:stone")
+      (props = (table
+                 (material = "stone"))))
+    (item/material/gel
+      (name = "Slime Gel")
+      (tags = '("gelatinous"))
+      (sprite = "item:gel"))
+    (fixture/container/chest
+      (name = "chest")
+      (tags = '("wooden" "flammable"))
+      (sprite = "fixture:chest")
+      (props = (table
+                 (capacity = 8))))
+    (fixture/sign
+      (name = "sign")
+      (tags = '("wooden" "readable"))
+      (solid = #t)
+      (sprite = "fixture:sign")
+      (props = (table
+                 (handsRange = 2))))
+    (fixture/furniture
+      (name = "furniture")
+      (tags = '("wooden"))
+      (solid = #t))
+    (fixture/furniture/bed
+      (name = "bed")
+      (tags = '("cloth"))
+      (solid = #f)
+      (sprite = "fixture:bed")
+      (props = (table
+                 (handsRange = 0))))
+    (fixture/furniture/table
+      (name = "table")
+      (tags = '("surface"))
+      (sprite = "fixture:table"))))
 
-;; (type-get id) — the alist for a registered type, or #f.
+;; (type-get id) — the table for a registered type, or #f. `id` is a symbol.
 (define (type-get id)
-  (alist-get *types* id))
+  (table-ref *types* id))
 
-;; (is-a type ancestor) — true when `ancestor` is `type` itself or a
-;; strict path prefix (i.e. an ancestor node).
+;; (is-a type ancestor) — true when `ancestor` is `type` itself or a strict
+;; path prefix (i.e. an ancestor node). Both ids are symbols.
 ;; Uses string-index from util.scm; a hit at position 0 means prefix.
 (define (is-a type ancestor)
-  (or (string=? type ancestor)
-      (equal? (string-index type (string-append ancestor "/")) 0)))
+  (or (eq? type ancestor)
+      (equal? (string-index (symbol->string type)
+                            (string-append (symbol->string ancestor) "/"))
+              0)))
 
-;; (game:debug-is-a type ancestor) — bridge-visible is-a for the 1.4
-;; smoke test: (game:debug-is-a "item/material/ore" "item/material") → #t.
+;; (game:debug-is-a type ancestor) — bridge-visible is-a for the 1.4 smoke
+;; test. Ids arrive from GDScript as strings; convert once here.
+;;   (game:debug-is-a "item/material/ore" "item/material") → #t
 (define (game:debug-is-a type ancestor)
-  (is-a type ancestor))
+  (is-a (string->symbol type) (string->symbol ancestor)))
 
 ;; (game:debug-types) — whole registry, for the data-loading smoke test.
 (define (game:debug-types)

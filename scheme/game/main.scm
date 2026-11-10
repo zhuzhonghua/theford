@@ -28,7 +28,7 @@
 ;;   data/catalog.scm asset path mapping: characters, music, sfx, items
 ;;   data/quests.scm  quest definitions: objectives + stages (smith-ore chain)
 ;;   data/people.scm  roster: names, personas, canned lines (loaded by npcs.scm)
-;;   util.scm   string/list helpers, alists
+;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   npcs.scm   npc lookups (display/persona/lines) over data/people.scm
 ;;   quest.scm  quest state machine, carried/delivered counts, history

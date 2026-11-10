@@ -7,61 +7,64 @@
 ;;
 ;; Replacing an asset means editing the path here — no GDScript change.
 ;; Godot reads these via the bridge (catalog-faceset, catalog-music, …).
+;;
+;; Data DSL: `table` (util.scm). All keys — section names and entries — are
+;; symbols; ids that arrive from the bridge as strings are converted once in
+;; the game:catalog-* wrappers at the bottom.
 
 (require "game.util")
 
 (define *catalog*
-  (list
+  (table
     ;; characters: id -> (spritesheet faceset) paths relative to res://
-    (cons "characters"
-      (list
-        (cons "player"
-          (list (cons 'spritesheet "assets/na/Actor/Character/NinjaRed/SpriteSheet.png")
-                (cons 'faceset "")))
-        (cons "smith"
-          (list (cons 'spritesheet "assets/na/Actor/Character/Villager/SpriteSheet.png")
-                (cons 'faceset "assets/lsw/Faces/Actor/Character/Villager/Faceset.png")))
-        (cons "apothecary"
-          (list (cons 'spritesheet "assets/na/Actor/Character/Woman/SpriteSheet.png")
-                (cons 'faceset "assets/lsw/Faces/Actor/Character/Woman/Faceset.png")))
-        (cons "innkeeper"
-          (list (cons 'spritesheet "assets/na/Actor/Character/Villager2/SpriteSheet.png")
-                (cons 'faceset "assets/lsw/Faces/Actor/Character/Villager2/Faceset.png")))))
+    (characters = (table
+                    (player
+                      (spritesheet = "assets/na/Actor/Character/NinjaRed/SpriteSheet.png")
+                      (faceset = ""))
+                    (smith
+                      (spritesheet = "assets/na/Actor/Character/Villager/SpriteSheet.png")
+                      (faceset = "assets/lsw/Faces/Actor/Character/Villager/Faceset.png"))
+                    (apothecary
+                      (spritesheet = "assets/na/Actor/Character/Woman/SpriteSheet.png")
+                      (faceset = "assets/lsw/Faces/Actor/Character/Woman/Faceset.png"))
+                    (innkeeper
+                      (spritesheet = "assets/na/Actor/Character/Villager2/SpriteSheet.png")
+                      (faceset = "assets/lsw/Faces/Actor/Character/Villager2/Faceset.png"))))
     ;; music: key -> path
-    (cons "music"
-      (list
-        (cons "village" "assets/na/Audio/Musics/4 - Village.ogg")))
+    (music = (table
+               (village = "assets/na/Audio/Musics/4 - Village.ogg")))
     ;; sfx: event key -> path (wired in the audio phase)
-    (cons "sfx" '())
+    (sfx = (table))
     ;; items: type sprite key -> path (wired in the inventory phase)
-    (cons "items" '())))
+    (items = (table))))
 
-;; (catalog-section key) — the alist for a top-level section, or #f.
+;; (catalog-section key) — the table for a top-level section, or #f.
 (define (catalog-section key)
-  (alist-get *catalog* key))
+  (table-ref *catalog* key))
 
 ;; (catalog-character id field) — path string for a character's field
-;; ('spritesheet | 'faceset), or #f.
+;; ('spritesheet | 'faceset), or #f. `id` is a symbol.
 (define (catalog-character id field)
-  (let ((c (catalog-section "characters")))
-    (and c (let ((entry (alist-get c id)))
-             (and entry (alist-get entry field))))))
+  (let ((c (catalog-section 'characters)))
+    (and c (let ((entry (table-ref c id)))
+             (and entry (table-ref entry field))))))
 
-;; (catalog-music key) — path string for a music track, or #f.
+;; (catalog-music key) — path string for a music track, or #f. `key` is a symbol.
 (define (catalog-music key)
-  (let ((m (catalog-section "music")))
-    (and m (alist-get m key))))
+  (let ((m (catalog-section 'music)))
+    (and m (table-ref m key))))
 
-;; (catalog-sfx key) — path string for a sound effect, or #f.
+;; (catalog-sfx key) — path string for a sound effect, or #f. `key` is a symbol.
 (define (catalog-sfx key)
-  (let ((s (catalog-section "sfx")))
-    (and s (alist-get s key))))
+  (let ((s (catalog-section 'sfx)))
+    (and s (table-ref s key))))
 
 ;; Bridge-visible wrappers (Godot calls game:catalog-*).
-(define (game:catalog-music key) (catalog-music key))
-(define (game:catalog-faceset id) (catalog-character id 'faceset))
-(define (game:catalog-spritesheet id) (catalog-character id 'spritesheet))
-(define (game:catalog-sfx key) (catalog-sfx key))
+;; Ids arrive as strings; convert once here, symbols everywhere inside.
+(define (game:catalog-music key) (catalog-music (string->symbol key)))
+(define (game:catalog-faceset id) (catalog-character (string->symbol id) 'faceset))
+(define (game:catalog-spritesheet id) (catalog-character (string->symbol id) 'spritesheet))
+(define (game:catalog-sfx key) (catalog-sfx (string->symbol key)))
 
 ;; (game:debug-catalog) — whole catalog, for the 1.6 smoke test.
 (define (game:debug-catalog)

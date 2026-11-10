@@ -7,17 +7,25 @@
 (require "game.util")
 (require "game.data.people")
 
-;; Topic -> canned line alist for one npc; '() for an unknown id.
+;; Shared empty table returned when an npc has no canned lines, so callers can
+;; table-ref it unconditionally.
+(define *no-lines* (table))
+
+;; npc ids are symbols here; the bridge converts strings once on entry.
+(define (npc-entry npc)
+  (table-ref *people* npc))
+
+;; Topic -> canned line table for one npc; empty table for an unknown id.
 (define (npc-fallback npc)
-  (let ((p (alist-get *people* npc)))
-    (if p (alist-get p 'lines) '())))
+  (let ((p (npc-entry npc)))
+    (if p (table-ref p 'lines *no-lines*) *no-lines*)))
 
 (define (npc-persona npc)
-  (let ((p (alist-get *people* npc)))
-    (if p (alist-get p 'persona) "你是村里的一位 NPC。")))
+  (let ((p (npc-entry npc)))
+    (if p (table-ref p 'persona "你是村里的一位 NPC。") "你是村里的一位 NPC。")))
 
 (define (npc-display npc)
-  (let ((p (alist-get *people* npc)))
-    (if p (alist-get p 'display) npc)))
+  (let ((p (npc-entry npc)))
+    (if p (table-ref p 'display (symbol->string npc)) (symbol->string npc))))
 
 (define (game:npc-ids) *npcs*)

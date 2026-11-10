@@ -18,6 +18,40 @@
         ((equal? (caar alist) key) (cons (cons key val) (cdr alist)))
         (else (cons (car alist) (alist-put (cdr alist) key val)))))
 
+;; ---- tables -----------------------------------------------------------------
+;;
+;; Data DSL: `table` builds nested hash tables.
+;;
+;;   (table
+;;     (smith                                ; a row: key + (field = value) pairs
+;;       (display = "Old Wang")
+;;       (lines = (table (greet = "Hey."))))  ; values may nest another table
+;;     (greet = "a greeting"))                ; bare field = value entries
+;;
+;; Keys and field names are symbols and get quoted automatically; the value
+;; after `=` is an ordinary expression.
+
+(define-syntax table
+  (syntax-rules (=)
+    ((_) (make-hash-table))
+    ;; a row: key followed by one or more (field = value) pairs
+    ((_ (key (f = v) more ...) rest ...)
+     (let ((h (table rest ...)))
+       (hash-table-set! h 'key (table (f = v) more ...))
+       h))
+    ;; a scalar entry: field = value
+    ((_ (f = v) rest ...)
+     (let ((h (table rest ...)))
+       (hash-table-set! h 'f v)
+       h))))
+
+;; (table-ref h key [default]) — value for key, or `default` (#f when omitted)
+;; if the key is absent. A stored #f counts as present.
+(define (table-ref h key . default)
+  (if (hash-table-exists? h key)
+      (hash-table-ref h key)
+      (if (null? default) #f (car default))))
+
 ;; ---- strings ----------------------------------------------------------------
 
 (define (string-index haystack needle)
