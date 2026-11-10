@@ -119,7 +119,7 @@ func _fit_zoom() -> float:
 func _refresh_hud() -> void:
 	if hud_label == null:
 		return
-	var hint := "" if (mech != null and mech.is_showing()) else "   F1 机制"
+	var hint := "" if (mech != null and mech.is_showing()) else "   F1 机制   F5 热重载"
 	hud_label.text = "%s\n铁矿石背包 x%d   %s%s" % [
 			str(Game.snapshot.get("quest_text", "")),
 			int(Game.snapshot.get("carried", 0)),
@@ -133,6 +133,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_F1:
 			if mech != null:
 				mech.toggle_visible()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_F5:
+			# Fire-and-forget: state and HUD refresh when the reply lands.
+			# An open dialog holds stale menus, so close it first.
+			if dialog_ui.is_open:
+				dialog_ui.close()
+			Game.reload_data()
 			get_viewport().set_input_as_handled()
 			return
 	if event.is_action_pressed("interact") and not dialog_ui.is_open:

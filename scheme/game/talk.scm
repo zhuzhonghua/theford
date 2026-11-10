@@ -86,6 +86,10 @@
 (define (learn-put! key line)
   (set! *learned* (alist-put *learned* key line)))
 
+;; Drop the cache so edited content is visible immediately after game:reload.
+(define (reset-talk!)
+  (set! *learned* '()))
+
 (define (llm-line npc t prompt)
   (let ((key (learn-key npc t)))
     (let ((hit (learn-get key)))

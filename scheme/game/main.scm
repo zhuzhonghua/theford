@@ -17,6 +17,7 @@
 ;;   game:take-ore              (quest.scm)
 ;;   game:talk npc-id topic     (talk.scm)
 ;;   game:status                (quest.scm)
+;;   game:reload                (here) re-read data files, reset state
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
 ;; the canned reply table, and the quest still completes end to end.
@@ -49,3 +50,29 @@
 (require "game.npcs")
 (require "game.quest")
 (require "game.talk")
+
+;; ---- dev hot reload ----------------------------------------------------------
+;; Forget every data module, read it again, then reset the quest to its start.
+;; Editing a line in data/*.scm takes effect on the next turn, no restart.
+;; Order matters: dialogue defines *default-topics* which quests appends to.
+
+(define *data-modules*
+  '("game.data.world"
+    "game.data.types"
+    "game.data.maps"
+    "game.data.catalog"
+    "game.data.dialogue"
+    "game.data.quests"
+    "game.data.people"))
+
+(define (reload-modules! mods)
+  (when (not (null? mods))
+    (require-clear! (car mods))
+    (require (car mods))
+    (reload-modules! (cdr mods))))
+
+(define (game:reload)
+  (reload-modules! *data-modules*)
+  (reset-quest!)
+  (reset-talk!)
+  (game:status))

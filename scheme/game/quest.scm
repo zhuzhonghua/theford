@@ -79,6 +79,14 @@
   (set! *stage* n)
   (set! *quest-state* (stage->state n)))
 
+;; Back to the quest's start, as if the game just booted. Used by game:reload
+;; after the data files have been re-read.
+(define (reset-quest!)
+  (set-stage! (quest-field 'start 10))
+  (set! *carried* 0)
+  (set! *delivered* 0)
+  (set! *histories* '()))
+
 ;; ---- history (unchanged) -----------------------------------------------------
 
 (define (hist-add npc speaker text)

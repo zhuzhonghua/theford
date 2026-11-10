@@ -187,6 +187,12 @@ func _absorb(fn: String, result: Variant) -> void:
 		"game:take-ore":
 			if result is int:
 				_write_snapshot(snapshot["quest_text"], result)
+		"game:reload":
+			snapshot["last_turn"] = {}
+			if result is Array and result.size() == 2:
+				_write_snapshot(result[0], result[1])
+			# Even an unchanged status needs a repaint: last_turn was cleared.
+			snapshot_changed.emit()
 
 func _write_snapshot(quest_text: Variant, carried: Variant) -> void:
 	var qt := str(quest_text)
@@ -240,6 +246,11 @@ func call_async(fn: String, args: Array = []) -> Variant:
 	var result: Variant = _replies.get(ticket)
 	_replies.erase(ticket)
 	return result
+
+## Dev hot reload: re-read scheme/game/data/*.scm on the worker and reset the
+## quest to its start. Content edits take effect without restarting Godot.
+func reload_data() -> Variant:
+	return await call_async("game:reload", [])
 
 func _push(msg: Dictionary) -> void:
 	_mutex.lock()
