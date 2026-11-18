@@ -7,6 +7,19 @@ extends Node2D
 ## All game state lives in the Scheme VM; this script only renders consequences.
 
 const TILE := 16
+const TICK_SECONDS := 0.1
+const NIGHT_COLOR := Color(0.46, 0.52, 0.70)
+const DAY_COLOR := Color(1.0, 0.98, 0.92)
+const WEATHER_NAMES := {
+	"sun": "晴", "cloud": "阴", "rain": "雨", "storm": "暴雨", "fog": "雾",
+}
+const WEATHER_TINTS := {
+	"sun": Color.WHITE,
+	"cloud": Color(0.88, 0.91, 0.96),
+	"rain": Color(0.72, 0.80, 0.92),
+	"storm": Color(0.48, 0.56, 0.72),
+	"fog": Color(0.88, 0.92, 0.94),
+}
 
 var map_w := 0
 var map_h := 0
@@ -14,6 +27,12 @@ var map_h := 0
 var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
 var mech: MechHud = null
+var _tick_accumulator := 0.0
+var _daylight: CanvasModulate = null
+var _weather_layer: CanvasLayer = null
+var _rain: GPUParticles2D = null
+var _fog: ColorRect = null
+var _last_weather := ""
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -32,6 +51,7 @@ func _ready() -> void:
 	hud_label.text = "……（启动中）"
 	_setup_audio()
 	_setup_world()
+	_setup_weather()
 	Game.snapshot_changed.connect(_refresh_hud)
 	if Game.booted:
 		_refresh_hud()
@@ -119,12 +139,113 @@ func _fit_zoom() -> float:
 func _refresh_hud() -> void:
 	if hud_label == null:
 		return
-	var hint := "" if (mech != null and mech.is_showing()) else "   F1 机制   F5 热重载"
-	hud_label.text = "%s\n铁矿石背包 x%d   %s%s" % [
+	var weather := str(Game.snapshot.get("weather", "sun"))
+	var hint := "" if (mech != null and mech.is_showing()) else "F1 机制   F5 热重载"
+	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n铁矿石背包 x%d   %s\n%s" % [
+			int(Game.snapshot.get("day", 1)),
+			int(Game.snapshot.get("hour", 8)),
+			int(Game.snapshot.get("minute", 0)),
+			str(WEATHER_NAMES.get(weather, weather)),
 			str(Game.snapshot.get("quest_text", "")),
 			int(Game.snapshot.get("carried", 0)),
 			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
 			hint]
+	_refresh_weather()
+
+## ----------------------------------------------------------- time / weather --
+
+func _setup_weather() -> void:
+	_daylight = CanvasModulate.new()
+	_daylight.name = "Daylight"
+	add_child(_daylight)
+
+	_weather_layer = CanvasLayer.new()
+	_weather_layer.name = "WeatherFX"
+	_weather_layer.layer = 5 # above the world, below HUD and dialog (layer 10)
+	add_child(_weather_layer)
+
+	_fog = ColorRect.new()
+	_fog.name = "Fog"
+	_fog.color = Color(0.72, 0.80, 0.86, 0.24)
+	_fog.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_weather_layer.add_child(_fog)
+
+	_rain = GPUParticles2D.new()
+	_rain.name = "Rain"
+	_rain.texture = _make_rain_texture()
+	_rain.process_material = _make_rain_material()
+	_rain.lifetime = 1.4
+	_rain.preprocess = 1.0
+	_rain.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_rain.emitting = false
+	_weather_layer.add_child(_rain)
+
+	get_viewport().size_changed.connect(_layout_weather)
+	_layout_weather()
+	_refresh_weather()
+
+func _make_rain_texture() -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(0.75, 0.86, 1.0, 0.0))
+	gradient.set_color(1, Color(0.75, 0.86, 1.0, 0.8))
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 2
+	texture.height = 14
+	texture.fill_from = Vector2.ZERO
+	texture.fill_to = Vector2(0.0, 1.0)
+	return texture
+
+func _make_rain_material() -> ParticleProcessMaterial:
+	var material := ParticleProcessMaterial.new()
+	material.direction = Vector3(0.18, 1.0, 0.0).normalized()
+	material.spread = 3.0
+	material.initial_velocity_min = 420.0
+	material.initial_velocity_max = 540.0
+	material.gravity = Vector3(40.0, 180.0, 0.0)
+	material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	material.emission_box_extents = Vector3(640.0, 4.0, 0.0)
+	material.scale_min = 0.8
+	material.scale_max = 1.3
+	return material
+
+func _layout_weather() -> void:
+	if _rain == null or _fog == null:
+		return
+	var size := get_viewport().get_visible_rect().size
+	_fog.size = size
+	_rain.position = Vector2(size.x * 0.5, -16.0)
+	_rain.visibility_rect = Rect2(-size.x, -64.0, size.x * 3.0, size.y + 256.0)
+	var material := _rain.process_material as ParticleProcessMaterial
+	if material != null:
+		material.emission_box_extents = Vector3(size.x * 0.65, 4.0, 0.0)
+
+func _refresh_weather() -> void:
+	if _daylight == null or _rain == null or _fog == null:
+		return
+	var weather := str(Game.snapshot.get("weather", "sun"))
+	var hour := float(Game.snapshot.get("hour", 8)) \
+			+ float(Game.snapshot.get("minute", 0)) / 60.0
+	var tint: Color = WEATHER_TINTS.get(weather, Color.WHITE)
+	_daylight.color = _daylight_color(hour) * tint
+	_fog.visible = weather == "fog"
+	if weather == _last_weather:
+		return
+	_last_weather = weather
+	var raining := weather == "rain" or weather == "storm"
+	_rain.amount = 420 if weather == "storm" else 180
+	_rain.speed_scale = 1.3 if weather == "storm" else 1.0
+	_rain.emitting = raining
+	_rain.visible = raining
+
+func _daylight_color(hour: float) -> Color:
+	if hour < 5.0 or hour >= 20.0:
+		return NIGHT_COLOR
+	if hour < 8.0:
+		return NIGHT_COLOR.lerp(DAY_COLOR, (hour - 5.0) / 3.0)
+	if hour < 17.0:
+		return DAY_COLOR
+	return DAY_COLOR.lerp(NIGHT_COLOR, (hour - 17.0) / 3.0)
 
 ## ------------------------------------------------------------------ input --
 
@@ -148,8 +269,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if npc != null:
 			dialog_ui.open_npc(npc)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_maybe_capture_frame()
+	if Game.booted and Game.vm_error == "":
+		_tick_accumulator += delta
+		while _tick_accumulator >= TICK_SECONDS:
+			_tick_accumulator -= TICK_SECONDS
+			Game.send("game:tick")
 	# walk-over ore pickup
 	for ore in get_tree().get_nodes_in_group("ore"):
 		if not is_instance_valid(ore) or player == null:

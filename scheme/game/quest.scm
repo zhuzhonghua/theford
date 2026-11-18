@@ -13,7 +13,7 @@
 ;;   apply-intent   (status . reason) for accept | give | chat
 ;;   verdict-hint   LLM steering per verdict status
 ;;   game:take-ore  pickup one ore
-;;   game:status    (quest-text carried)
+;;   (game:status aggregates quest + clock; it lives in main.scm)
 
 (require "game.util")
 (require "game.data.quests")
@@ -188,6 +188,3 @@
 (define (game:take-ore)
   (set! *carried* (+ *carried* 1))
   *carried*)
-
-(define (game:status)
-  (list (quest-text) *carried*))

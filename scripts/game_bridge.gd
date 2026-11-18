@@ -32,6 +32,10 @@ var booted := false
 var snapshot := {
 	"quest_text": "",
 	"carried": 0,
+	"day": 1,
+	"hour": 8,
+	"minute": 0,
+	"weather": "sun",
 	"model": "",
 	"llm_version": "",
 	"last_turn": {},
@@ -92,7 +96,7 @@ func _worker_main() -> void:
 			var ok: Variant = vm.call_fn("game:boot", [])
 			msg["llm"] = (ok is bool and ok)
 		var st: Variant = vm.call_fn("game:status", [])
-		if st is Array and st.size() == 2:
+		if st is Array and st.size() == 6:
 			msg["status"] = st
 		var eng: Variant = vm.call_fn("game:engine-info", [])
 		if eng is Array:
@@ -120,6 +124,7 @@ func _worker_main() -> void:
 				"ticket": req["ticket"],
 				"fn": req["fn"],
 				"result": result,
+				"keep_reply": req.get("keep_reply", false),
 			})
 			_mutex.unlock()
 	# Dropping the last reference here frees the VM on this thread.
@@ -149,15 +154,16 @@ func _process(_delta: float) -> void:
 			var result: Variant = m.get("result")
 			_absorb(fn, result)
 			var ticket := int(m["ticket"])
-			_replies[ticket] = result
+			if bool(m.get("keep_reply", false)):
+				_replies[ticket] = result
 			rpc_replied.emit(ticket, result)
 
 func _on_ready(m: Dictionary) -> void:
 	vm_error = str(m.get("error", ""))
 	use_llm = bool(m.get("llm", false))
 	var st: Variant = m.get("status")
-	if st is Array and st.size() == 2:
-		_write_snapshot(st[0], st[1])
+	if st is Array and st.size() == 6:
+		_write_snapshot(st[0], st[1], st.slice(2))
 	var eng: Variant = m.get("engine")
 	if eng is Array and eng.size() >= 3:
 		snapshot["model"] = str(eng[0])
@@ -172,9 +178,9 @@ func _on_ready(m: Dictionary) -> void:
 ## Cache the state-bearing parts of replies so the HUD never calls the VM.
 func _absorb(fn: String, result: Variant) -> void:
 	match fn:
-		"game:status":
-			if result is Array and result.size() == 2:
-				_write_snapshot(result[0], result[1])
+		"game:status", "game:tick":
+			if result is Array and result.size() == 6:
+				_write_snapshot(result[0], result[1], result.slice(2))
 		"game:greet":
 			if result is Array and result.size() >= 3:
 				_write_snapshot(result[1], result[2])
@@ -189,18 +195,28 @@ func _absorb(fn: String, result: Variant) -> void:
 				_write_snapshot(snapshot["quest_text"], result)
 		"game:reload":
 			snapshot["last_turn"] = {}
-			if result is Array and result.size() == 2:
-				_write_snapshot(result[0], result[1])
+			if result is Array and result.size() == 6:
+				_write_snapshot(result[0], result[1], result.slice(2))
 			# Even an unchanged status needs a repaint: last_turn was cleared.
 			snapshot_changed.emit()
 
-func _write_snapshot(quest_text: Variant, carried: Variant) -> void:
+func _write_snapshot(quest_text: Variant, carried: Variant, clock: Array = []) -> void:
 	var qt := str(quest_text)
 	var c := int(carried)
-	if str(snapshot["quest_text"]) == qt and int(snapshot["carried"]) == c:
+	var d := int(clock[0]) if clock.size() == 4 else int(snapshot["day"])
+	var h := int(clock[1]) if clock.size() == 4 else int(snapshot["hour"])
+	var m := int(clock[2]) if clock.size() == 4 else int(snapshot["minute"])
+	var w := str(clock[3]) if clock.size() == 4 else str(snapshot["weather"])
+	if str(snapshot["quest_text"]) == qt and int(snapshot["carried"]) == c \
+			and int(snapshot["day"]) == d and int(snapshot["hour"]) == h \
+			and int(snapshot["minute"]) == m and str(snapshot["weather"]) == w:
 		return
 	snapshot["quest_text"] = qt
 	snapshot["carried"] = c
+	snapshot["day"] = d
+	snapshot["hour"] = h
+	snapshot["minute"] = m
+	snapshot["weather"] = w
 	snapshot_changed.emit()
 
 ## decision = (topic intent verdict reason source model-desc prefill-tps decode-tps)
@@ -225,22 +241,25 @@ func _store_turn(decision: Array, learned: bool) -> void:
 ## ---- RPC surface ----------------------------------------------------------
 
 ## Queue a call and return immediately; the result comes back via rpc_replied.
-func send(fn: String, args: Array = []) -> int:
+## Only awaited calls retain their reply in _replies; fire-and-forget ticks do
+## not grow that dictionary for the lifetime of the game.
+func send(fn: String, args: Array = [], keep_reply: bool = false) -> int:
 	var ticket := _next_ticket
 	_next_ticket += 1
 	if not _running:
-		_replies[ticket] = null
+		if keep_reply:
+			_replies[ticket] = null
 		rpc_replied.emit(ticket, null)
 		return ticket
 	_mutex.lock()
-	_inbound.append({"ticket": ticket, "fn": fn, "args": args})
+	_inbound.append({"ticket": ticket, "fn": fn, "args": args, "keep_reply": keep_reply})
 	_mutex.unlock()
 	_sem.post()
 	return ticket
 
 ## Queue a call and await its result without blocking any thread.
 func call_async(fn: String, args: Array = []) -> Variant:
-	var ticket := send(fn, args)
+	var ticket := send(fn, args, true)
 	while not _replies.has(ticket):
 		await rpc_replied
 	var result: Variant = _replies.get(ticket)
@@ -248,7 +267,7 @@ func call_async(fn: String, args: Array = []) -> Variant:
 	return result
 
 ## Dev hot reload: re-read scheme/game/data/*.scm on the worker and reset the
-## quest to its start. Content edits take effect without restarting Godot.
+## quest, talk caches and clock. Content edits take effect without restarting Godot.
 func reload_data() -> Variant:
 	return await call_async("game:reload", [])
 

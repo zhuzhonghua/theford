@@ -16,7 +16,8 @@
 ;;   game:greet npc-id          (talk.scm)
 ;;   game:take-ore              (quest.scm)
 ;;   game:talk npc-id topic     (talk.scm)
-;;   game:status                (quest.scm)
+;;   game:tick                  (time.scm) advance one tick, returns game:status
+;;   game:status                (here) quest text + ore + clock + weather
 ;;   game:reload                (here) re-read data files, reset state
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
@@ -34,6 +35,7 @@
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   npcs.scm   npc lookups (display/persona/lines) over data/people.scm
 ;;   quest.scm  quest state machine, carried/delivered counts, history
+;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
 ;;
 ;; The village map/NPC placement is authored in Godot (scenes/world.tscn);
@@ -46,13 +48,20 @@
 (require "game.data.catalog")
 (require "game.data.dialogue")
 (require "game.data.quests")
+(require "game.time")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
 (require "game.talk")
 
+;; ---- aggregated status -------------------------------------------------------
+;; (quest-text carried day hour minute weather) — one reply feeds the whole HUD.
+
+(define (game:status)
+  (append (list (quest-text) *carried*) (time-status)))
+
 ;; ---- dev hot reload ----------------------------------------------------------
-;; Forget every data module, read it again, then reset the quest to its start.
+;; Forget every data module, read it again, then reset quest, talk and time state.
 ;; Editing a line in data/*.scm takes effect on the next turn, no restart.
 ;; Order matters: dialogue defines *default-topics* which quests appends to.
 
@@ -75,4 +84,5 @@
   (reload-modules! *data-modules*)
   (reset-quest!)
   (reset-talk!)
+  (reset-time!)
   (game:status))
