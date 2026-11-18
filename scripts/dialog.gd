@@ -73,6 +73,10 @@ func close() -> void:
 	_typing = false
 	_text.text = ""
 
+## Id of the npc currently being talked to, "" when the panel is closed.
+func current_npc_id() -> String:
+	return _npc_id if is_open else ""
+
 func _clear_menu() -> void:
 	# queue_free, not free: a choice button is often inside its own pressed
 	# signal when this runs, and a locked object cannot be freed.

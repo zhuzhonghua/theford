@@ -36,6 +36,7 @@ var snapshot := {
 	"hour": 8,
 	"minute": 0,
 	"weather": "sun",
+	"people": [],       # [[id, "map:anchor", activity], ...]
 	"model": "",
 	"llm_version": "",
 	"last_turn": {},
@@ -199,6 +200,17 @@ func _absorb(fn: String, result: Variant) -> void:
 				_write_snapshot(result[0], result[1], result.slice(2))
 			# Even an unchanged status needs a repaint: last_turn was cleared.
 			snapshot_changed.emit()
+		"game:people":
+			if result is Array:
+				_write_people(result)
+
+## NPC schedule rows: [id, anchor, activity]. Repaint only on a real change so
+## the per-second refresh does not spam the HUD.
+func _write_people(rows: Array) -> void:
+	if snapshot["people"] == rows:
+		return
+	snapshot["people"] = rows.duplicate(true)
+	snapshot_changed.emit()
 
 func _write_snapshot(quest_text: Variant, carried: Variant, clock: Array = []) -> void:
 	var qt := str(quest_text)

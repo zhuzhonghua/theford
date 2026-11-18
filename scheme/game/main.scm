@@ -18,6 +18,7 @@
 ;;   game:talk npc-id topic     (talk.scm)
 ;;   game:tick                  (time.scm) advance one tick, returns game:status
 ;;   game:status                (here) quest text + ore + clock + weather
+;;   game:people                (here) id + current anchor + activity per npc
 ;;   game:reload                (here) re-read data files, reset state
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
@@ -30,10 +31,10 @@
 ;;   data/catalog.scm asset path mapping: characters, music, sfx, items
 ;;   data/dialogue.scm shared talk text: topic labels, utterances, prompt template
 ;;   data/quests.scm  quest definitions: objectives + stages (smith-ore chain)
-;;   data/people.scm  roster: names, personas, canned lines (loaded by npcs.scm)
+;;   data/people.scm  roster: names, personas, canned lines, schedules (see npcs.scm)
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
-;;   npcs.scm   npc lookups (display/persona/lines) over data/people.scm
+;;   npcs.scm   npc lookups (display/persona/lines/schedule) over data/people.scm
 ;;   quest.scm  quest state machine, carried/delivered counts, history
 ;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
@@ -60,6 +61,19 @@
 (define (game:status)
   (append (list (quest-text) *carried*) (time-status)))
 
+;; ---- npc schedules -----------------------------------------------------------
+;; (id anchor activity) per villager at the current clock hour. Anchor names are
+;; "map:anchor" strings; Godot resolves them to pixel positions. Deciding who is
+;; where stays here; walking the body is the presentation layer's job.
+
+(define (game:people)
+  (let* ((now (clock-at *tick*))
+         (hour (cadr now)))
+    (map (lambda (npc)
+           (let ((plan (npc-plan npc hour)))
+             (list (symbol->string npc) (car plan) (cadr plan))))
+         *npcs*)))
+
 ;; ---- dev hot reload ----------------------------------------------------------
 ;; Forget every data module, read it again, then reset quest, talk and time state.
 ;; Editing a line in data/*.scm takes effect on the next turn, no restart.
@@ -82,6 +96,7 @@
 
 (define (game:reload)
   (reload-modules! *data-modules*)
+  (report-schedule-problems)
   (reset-quest!)
   (reset-talk!)
   (reset-time!)

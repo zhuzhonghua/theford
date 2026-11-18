@@ -8,6 +8,8 @@ extends Node2D
 
 const TILE := 16
 const TICK_SECONDS := 0.1
+const PEOPLE_SECONDS := 1.0
+const NPC_SPEED := 40.0
 const NIGHT_COLOR := Color(0.46, 0.52, 0.70)
 const DAY_COLOR := Color(1.0, 0.98, 0.92)
 const WEATHER_NAMES := {
@@ -20,6 +22,11 @@ const WEATHER_TINTS := {
 	"storm": Color(0.48, 0.56, 0.72),
 	"fog": Color(0.88, 0.92, 0.94),
 }
+const ACTIVITY_NAMES := {
+	"smithing": "打铁", "herbs": "晒药", "innkeeping": "看店",
+	"lunch": "吃饭", "drinking": "歇脚", "strolling": "闲逛",
+	"sleep": "睡觉", "idle": "站着",
+}
 
 var map_w := 0
 var map_h := 0
@@ -28,11 +35,15 @@ var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
 var mech: MechHud = null
 var _tick_accumulator := 0.0
+var _people_accumulator := 0.0
 var _daylight: CanvasModulate = null
 var _weather_layer: CanvasLayer = null
 var _rain: GPUParticles2D = null
 var _fog: ColorRect = null
 var _last_weather := ""
+var _astar := AStarGrid2D.new()
+var _anchors := {}       # anchor name -> world position (from Marker2D nodes)
+var _npc_state := {}     # npc id -> {anchor, activity, path, step}
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -56,6 +67,8 @@ func _ready() -> void:
 	if Game.booted:
 		_refresh_hud()
 		_start_bgm()
+		Game.send("game:people")
+		_check_anchors()
 	else:
 		Game.bridge_ready.connect(_on_bridge_ready)
 	_maybe_run_headless_demo()
@@ -65,6 +78,8 @@ func _ready() -> void:
 func _on_bridge_ready(_llm: bool) -> void:
 	_refresh_hud()
 	_start_bgm()
+	Game.send("game:people")
+	_check_anchors()
 
 ## BGM player is created early; the stream is loaded from the catalog once
 ## the Scheme bridge is up (see _start_bgm). This keeps asset paths in
@@ -98,6 +113,8 @@ func _setup_world() -> void:
 	map_w = maxi(used.end.x, 1)
 	map_h = maxi(used.end.y, 1)
 	_build_blocked()
+	_setup_anchors()
+	_setup_astar()
 	player.main = self
 	_setup_camera()
 
@@ -114,6 +131,138 @@ func _build_blocked() -> void:
 	for node in get_tree().get_nodes_in_group("obstacle"):
 		if node is Node2D:
 			blocked[_foot_cell(node.position)] = true
+
+## Anchor markers (world.tscn / Anchors/*) are the only bridge between the
+## semantic names Scheme schedules with and actual world pixels.
+func _setup_anchors() -> void:
+	_anchors.clear()
+	var root := world.get_node_or_null("Anchors")
+	if root == null:
+		return
+	for node in root.get_children():
+		if node is Node2D:
+			_anchors[str(node.name)] = node.position
+
+## Static grid for NPC paths. Four-way movement only (DIAGONAL_MODE_NEVER):
+## villagers walk the roads instead of cutting through tree corners.
+func _setup_astar() -> void:
+	_astar.region = Rect2i(0, 0, map_w, map_h)
+	_astar.cell_size = Vector2(TILE, TILE)
+	_astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
+	_astar.update()
+	for cell in blocked.keys():
+		if _astar.is_in_boundsv(cell):
+			_astar.set_point_solid(cell, true)
+
+## Cross-check both directions once the bridge is up: every map anchor needs a
+## Marker2D, and every Marker2D should be named by the map data.
+func _check_anchors() -> void:
+	var names: Variant = await Game.call_async("game:map-anchors", [])
+	if not (names is Array):
+		return
+	for n in names:
+		if not _anchors.has(str(n)):
+			push_warning("[anchors] map anchor has no Marker2D: " + str(n))
+	for n in _anchors.keys():
+		if not names.has(str(n)):
+			push_warning("[anchors] Marker2D unused by map data: " + str(n))
+
+func _npc_by_id(id: String) -> Node2D:
+	for npc in get_tree().get_nodes_in_group("npc"):
+		if npc.npc_id == id:
+			return npc
+	return null
+
+func _cell_center(cell: Vector2i) -> Vector2:
+	return Vector2(cell.x * TILE + TILE * 0.5, cell.y * TILE + TILE * 0.5)
+
+## Cell-centre waypoints from the NPC's cell to the anchor, in world pixels.
+## Other villagers' cells are temporarily solid so routes do not start by
+## walking straight through someone; they are restored right after the query.
+func _path_to_anchor(at: String, from_pos: Vector2, self_id: String = "") -> PackedVector2Array:
+	var anchor_name := at.get_slice(":", 1) if at.contains(":") else at
+	if not _anchors.has(anchor_name):
+		return PackedVector2Array()
+	var goal: Vector2 = _anchors[anchor_name]
+	var from_cell := Vector2i(floori(from_pos.x / TILE), floori(from_pos.y / TILE))
+	var goal_cell := Vector2i(floori(goal.x / TILE), floori(goal.y / TILE))
+	if not _astar.is_in_boundsv(from_cell) or _astar.is_point_solid(from_cell):
+		return PackedVector2Array()
+	if not _astar.is_in_boundsv(goal_cell) or _astar.is_point_solid(goal_cell):
+		return PackedVector2Array()
+	var reserved: Array[Vector2i] = []
+	for other in get_tree().get_nodes_in_group("npc"):
+		if other.npc_id == self_id or not other.visible:
+			continue
+		var cell := Vector2i(floori(other.position.x / TILE), floori(other.position.y / TILE))
+		if cell == from_cell:
+			continue
+		if _astar.is_in_boundsv(cell) and not _astar.is_point_solid(cell):
+			_astar.set_point_solid(cell, true)
+			reserved.append(cell)
+	if goal_cell in reserved:
+		# Someone is already standing there; still allow arriving next to them.
+		_astar.set_point_solid(goal_cell, false)
+		reserved.erase(goal_cell)
+	var cells := _astar.get_id_path(from_cell, goal_cell)
+	for cell in reserved:
+		_astar.set_point_solid(cell, false)
+	var path := PackedVector2Array()
+	for i in range(1, cells.size()):
+		path.append(_cell_center(cells[i]))
+	if path.is_empty():
+		path.append(goal) # already standing on the anchor
+	else:
+		path[path.size() - 1] = goal
+	return path
+
+## Apply one `game:people` reply: repath only when the anchor changed, so an
+## NPC keeps walking when a per-second refresh lands mid-route.
+func _apply_people(rows: Array) -> void:
+	for row in rows:
+		if not (row is Array and row.size() == 3) or row[1] == null:
+			continue
+		var id := str(row[0])
+		var at := str(row[1])
+		var activity := str(row[2])
+		var npc := _npc_by_id(id)
+		if npc == null:
+			continue
+		var state: Dictionary = _npc_state.get(id, {})
+		if str(state.get("anchor", "")) != at:
+			state["anchor"] = at
+			state["path"] = _path_to_anchor(at, npc.position, id)
+			state["step"] = 0
+		state["activity"] = activity
+		_npc_state[id] = state
+
+## Walk every villager along its cached path. A villager being talked to holds
+## still and resumes afterwards; one whose `sleep` anchor has been reached
+## disappears (no interiors yet, so the doorway stands in for the inside).
+func _move_npcs(delta: float) -> void:
+	for npc in get_tree().get_nodes_in_group("npc"):
+		var state: Dictionary = _npc_state.get(npc.npc_id, {})
+		if state.is_empty():
+			continue
+		var activity := str(state.get("activity", "idle"))
+		var path: PackedVector2Array = state.get("path", PackedVector2Array())
+		var step: int = int(state.get("step", 0))
+		var talking: bool = dialog_ui.is_open and dialog_ui.current_npc_id() == npc.npc_id
+		if step < path.size() and not talking:
+			var target := path[step]
+			var d: Vector2 = target - npc.position
+			var travel := NPC_SPEED * delta
+			if d.length() <= travel:
+				npc.position = target
+				step += 1
+				state["step"] = step
+			else:
+				npc.position += d.normalized() * travel
+				npc.face_dir(d)
+			npc.set_walking(true)
+		else:
+			npc.set_walking(false)
+		npc.visible = not (step >= path.size() and activity == "sleep")
 
 func _setup_camera() -> void:
 	var cam: Camera2D = player.get_node_or_null("Camera2D")
@@ -141,16 +290,29 @@ func _refresh_hud() -> void:
 		return
 	var weather := str(Game.snapshot.get("weather", "sun"))
 	var hint := "" if (mech != null and mech.is_showing()) else "F1 机制   F5 热重载"
-	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n铁矿石背包 x%d   %s\n%s" % [
+	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n铁矿石背包 x%d   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
 			int(Game.snapshot.get("minute", 0)),
 			str(WEATHER_NAMES.get(weather, weather)),
 			str(Game.snapshot.get("quest_text", "")),
+			_activity_line(),
 			int(Game.snapshot.get("carried", 0)),
 			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
 			hint]
 	_refresh_weather()
+
+## Compact schedule readout: "老王：打铁   陈婆：晒药   张掌柜：看店".
+func _activity_line() -> String:
+	var parts: Array = []
+	for row in Game.snapshot.get("people", []):
+		if not (row is Array and row.size() == 3):
+			continue
+		var npc := _npc_by_id(str(row[0]))
+		var who: String = npc.display_name if npc != null else str(row[0])
+		var activity := str(row[2])
+		parts.append("%s：%s" % [who, str(ACTIVITY_NAMES.get(activity, activity))])
+	return "   ".join(parts)
 
 ## ----------------------------------------------------------- time / weather --
 
@@ -269,6 +431,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if npc != null:
 			dialog_ui.open_npc(npc)
 
+func _exit_tree() -> void:
+	# Release the grid explicitly: it is the one RefCounted the scene owns.
+	_astar = null
+
 func _process(delta: float) -> void:
 	_maybe_capture_frame()
 	if Game.booted and Game.vm_error == "":
@@ -276,6 +442,12 @@ func _process(delta: float) -> void:
 		while _tick_accumulator >= TICK_SECONDS:
 			_tick_accumulator -= TICK_SECONDS
 			Game.send("game:tick")
+		_people_accumulator += delta
+		while _people_accumulator >= PEOPLE_SECONDS:
+			_people_accumulator -= PEOPLE_SECONDS
+			Game.send("game:people")
+	_apply_people(Game.snapshot.get("people", []))
+	_move_npcs(delta)
 	# walk-over ore pickup
 	for ore in get_tree().get_nodes_in_group("ore"):
 		if not is_instance_valid(ore) or player == null:
@@ -289,6 +461,8 @@ func _nearest_npc(from: Vector2, radius: float) -> Node2D:
 	var best: Node2D = null
 	var best_d := radius
 	for npc in get_tree().get_nodes_in_group("npc"):
+		if not npc.visible:
+			continue
 		var d: float = npc.position.distance_to(from)
 		if d < best_d:
 			best_d = d
@@ -303,7 +477,7 @@ func is_walkable(world_pos: Vector2) -> bool:
 	if blocked.get(tile, false):
 		return false
 	for npc in get_tree().get_nodes_in_group("npc"):
-		if npc.position.distance_to(world_pos) < 9.0:
+		if npc.visible and npc.position.distance_to(world_pos) < 9.0:
 			return false
 	return true
 

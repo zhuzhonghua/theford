@@ -23,7 +23,8 @@
       (name = "渡口村")
       (zone = "peaceful")
       (music = "village")
-      (anchors = '("smithy" "herb-garden" "inn" "riverbank" "village-square"))
+      (anchors = '("smithy" "herb-garden" "inn" "inn-yard" "riverbank" "village-square"
+                   "smith-home" "apothecary-home" "innkeeper-home"))
       (portals = '())
       (npcs = '("smith" "apothecary" "innkeeper")))))
 
@@ -45,6 +46,11 @@
 (define (map-npcs id)
   (let ((m (map-get id)))
     (if m (table-ref m 'npcs '()) '())))
+
+;; (game:map-anchors) — anchor names of the village, for the Godot side to
+;; verify that every Marker2D it authored has a matching semantic name.
+(define (game:map-anchors)
+  (map-anchors 'village))
 
 ;; (game:debug-map) — anchors and portal labels for the village, for the
 ;; 1.5 smoke test.

@@ -19,16 +19,17 @@ layer = 10
 offset_left = 8.0
 offset_top = 8.0
 offset_right = 428.0
-offset_bottom = 170.0
+offset_bottom = 202.0
 self_modulate = Color(1, 1, 1, 0.85)
 
 [node name="HUDLabel" type="Label" parent="UI/HUD"]
 offset_left = 16.0
 offset_top = 10.0
 offset_right = 412.0
-offset_bottom = 160.0
+offset_bottom = 192.0
 text = "第 1 天  08:00   天气：晴
 任务：未接（找铁匠老王聊聊）
+老王：打铁   陈婆：晒药   张掌柜：看店
 铁矿石背包 x0   LLM：本地推理
 F1 机制   F5 热重载"
 theme_override_constants/line_spacing = 6

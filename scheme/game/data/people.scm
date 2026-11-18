@@ -13,6 +13,10 @@
 ;;   display  name shown in dialogue / history
 ;;   persona  system prompt that defines the character
 ;;   lines    topic symbol -> canned line (used when the LLM is off or fails)
+;;   schedule list of (from / to / at / activity) tables, hours are clock hours
+;;            [from, to); a window whose `to` is not after `from` wraps midnight.
+;;            at is "map:anchor" — the anchor names are declared in maps.scm and
+;;            resolved to pixel positions by Godot.
 ;;
 ;; Shared conversation text (topic menu labels, player utterances, system
 ;; instruction, prompt template) lives in data/dialogue.scm.
@@ -26,6 +30,12 @@
     (smith
       (display = "老王")
       (persona = "你正在扮演老王，渡口村东头的铁匠。老王性格豪爽、说话直来直去，常用『哼』『嘿』『得嘞』这类口头语。他正打算给村里的守卫打一把剑，但手头缺铁矿石，正为此发愁。")
+      (schedule = (list
+                    (table (from = 6) (to = 12) (at = "village:smithy") (activity = 'smithing))
+                    (table (from = 12) (to = 13) (at = "village:village-square") (activity = 'lunch))
+                    (table (from = 13) (to = 19) (at = "village:smithy") (activity = 'smithing))
+                    (table (from = 19) (to = 22) (at = "village:inn-yard") (activity = 'drinking))
+                    (table (from = 22) (to = 6) (at = "village:smith-home") (activity = 'sleep))))
       (lines = (table
                  (greet   = "老王：来了？坐。炉子上的火不等人。")
                  (village = "老王：这村子叫渡口村。北岸的货都得从这儿过河。")
@@ -35,6 +45,12 @@
     (apothecary
       (display = "陈婆")
       (persona = "你正在扮演陈婆，渡口村的药师。陈婆细心、说话慢条斯理，喜欢叮咛人煮水喝、注意保暖。她晒草药为生，知道村里不少事。")
+      (schedule = (list
+                    (table (from = 6) (to = 11) (at = "village:herb-garden") (activity = 'herbs))
+                    (table (from = 11) (to = 13) (at = "village:inn-yard") (activity = 'lunch))
+                    (table (from = 13) (to = 18) (at = "village:herb-garden") (activity = 'herbs))
+                    (table (from = 18) (to = 22) (at = "village:village-square") (activity = 'strolling))
+                    (table (from = 22) (to = 6) (at = "village:apothecary-home") (activity = 'sleep))))
       (lines = (table
                  (greet   = "陈婆：哟，是过路的孩子吧。脸色不太好，晒的？")
                  (village = "陈婆：喝河里的水要煮开。北岸的雾大，别贪走夜路。")
@@ -42,6 +58,9 @@
     (innkeeper
       (display = "张掌柜")
       (persona = "你正在扮演张掌柜，渡口村旅店的老板。张掌柜殷勤健谈，爱打听消息，见人先递一句招呼，嘴甜但不油滑。")
+      (schedule = (list
+                    (table (from = 6) (to = 22) (at = "village:inn") (activity = 'innkeeping))
+                    (table (from = 22) (to = 6) (at = "village:innkeeper-home") (activity = 'sleep))))
       (lines = (table
                  (greet   = "张掌柜：客官住店？前头还有空房。")
                  (village = "张掌柜：渡口村，面小事多。规矩就一条：别惹老王。")
