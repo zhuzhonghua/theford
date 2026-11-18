@@ -76,23 +76,25 @@
         ((string=? s (car xs)) #t)
         (else (member-string? s (cdr xs)))))
 
-;; Every schedule anchor must be declared on the map. Returns
+;; Every schedule anchor must be declared on the map it names. Returns
 ;; ((npc-id at) ...) for the ones that are not; empty means the data is sound.
+;; Each `at` is "map:anchor"; look up that map's own anchor list — the village
+;; check alone would silently accept typos on the smithy (or any future map).
 (define (schedule-problems)
-  (let ((anchors (map-anchors 'village)))
-    (let loop ((ids *npcs*) (acc '()))
-      (if (null? ids)
-          (reverse acc)
-          (let ((npc (car ids)))
-            (let loop2 ((s (npc-schedule npc)) (acc acc))
-              (if (null? s)
-                  (loop (cdr ids) acc)
-                  (let* ((at (table-ref (car s) 'at ""))
-                         (ok (and (string=? (anchor-map at) "village")
-                                  (member-string? (anchor-name at) anchors))))
-                    (loop2 (cdr s)
-                           (if ok acc
-                               (cons (list (symbol->string npc) at) acc)))))))))))
+  (let loop ((ids *npcs*) (acc '()))
+    (if (null? ids)
+        (reverse acc)
+        (let ((npc (car ids)))
+          (let loop2 ((s (npc-schedule npc)) (acc acc))
+            (if (null? s)
+                (loop (cdr ids) acc)
+                (let* ((at (table-ref (car s) 'at ""))
+                       (anchors (map-anchors (string->symbol (anchor-map at))))
+                       (ok (and (not (null? anchors))
+                                (member-string? (anchor-name at) anchors))))
+                  (loop2 (cdr s)
+                         (if ok acc
+                             (cons (list (symbol->string npc) at) acc))))))))))
 
 (define (report-schedule-problems)
   (if (null? (schedule-problems))

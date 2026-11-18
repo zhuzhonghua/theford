@@ -8,6 +8,7 @@
 [ext_resource type="Texture2D" path="res://assets/na/Actor/Character/Woman/SpriteSheet.png" id="9_7iits"]
 [ext_resource type="Texture2D" path="res://assets/na/Actor/Character/Villager2/SpriteSheet.png" id="10_oo54l"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="11_kpybi"]
+[ext_resource type="Texture2D" path="res://assets/na/Ui/Arrow.png" id="12_portal_hint"]
 
 [node name="World" type="Node2D" unique_id=1932246936]
 y_sort_enabled = true
@@ -2353,8 +2354,8 @@ position = Vector2(392, 280)
 
 [node name="Anchors" type="Node2D" parent="."]
 
-[node name="smithy" type="Marker2D" parent="Anchors"]
-position = Vector2(360, 200)
+[node name="smithy-door" type="Marker2D" parent="Anchors"]
+position = Vector2(360, 216)
 
 [node name="herb-garden" type="Marker2D" parent="Anchors"]
 position = Vector2(168, 120)
@@ -2379,3 +2380,14 @@ position = Vector2(456, 344)
 
 [node name="inn-yard" type="Marker2D" parent="Anchors"]
 position = Vector2(504, 280)
+
+[node name="Portals" type="Node2D" parent="."]
+
+[node name="to-smithy" type="Marker2D" parent="Portals"]
+position = Vector2(360, 200)
+
+[node name="Hint" type="Sprite2D" parent="Portals/to-smithy"]
+modulate = Color(1, 0.85, 0.25, 1)
+position = Vector2(0, -12)
+z_index = 10
+texture = ExtResource("12_portal_hint")

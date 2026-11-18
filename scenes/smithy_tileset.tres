@@ -1,0 +1,19 @@
+[gd_resource type="TileSet" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/na/Backgrounds/Tilesets/Interior/TilesetInteriorFloor.png" id="1_floor"]
+[ext_resource type="Texture2D" path="res://assets/na/Backgrounds/Tilesets/TilesetHouse.png" id="2_house"]
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_floor"]
+texture = ExtResource("1_floor")
+11:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_wall"]
+texture = ExtResource("2_house")
+11:9/0 = 0
+11:9/0/custom_data_0 = true
+
+[resource]
+custom_data_layer_0/name = "blocked"
+custom_data_layer_0/type = 1
+sources/0 = SubResource("TileSetAtlasSource_floor")
+sources/1 = SubResource("TileSetAtlasSource_wall")

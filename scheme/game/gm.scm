@@ -48,7 +48,7 @@
     "number ::= digits | digits \".\" digits\n"
     "weather-name ::= \"sun\" | \"cloud\" | \"rain\" | \"storm\" | \"fog\" | \"auto\"\n"
     "npc-id ::= \"smith\" | \"apothecary\" | \"innkeeper\"\n"
-    "anchor ::= \"smithy\" | \"herb-garden\" | \"inn\" | \"inn-yard\" | \"riverbank\" | \"village-square\" | \"smith-home\" | \"apothecary-home\" | \"innkeeper-home\"\n"
+    "anchor ::= \"smithy-door\" | \"herb-garden\" | \"inn\" | \"inn-yard\" | \"riverbank\" | \"village-square\" | \"smith-home\" | \"apothecary-home\" | \"innkeeper-home\"\n"
     "activity ::= \"smithing\" | \"herbs\" | \"innkeeping\" | \"lunch\" | \"drinking\" | \"strolling\" | \"sleep\" | \"idle\"\n"
     "hour ::= [01][0-9] | \"2\"[0-3]\n"
     "minute ::= [0-5][0-9]\n"
@@ -118,7 +118,7 @@
 (define *gm-anchor-aliases*
   '(("酒馆" . "inn-yard")
     ("客栈" . "inn") ("旅店" . "inn")
-    ("铁匠铺" . "smithy") ("铁匠家" . "smith-home")
+    ("铁匠铺" . "smithy-door") ("铁匠家" . "smith-home")
     ("药圃" . "herb-garden") ("药园" . "herb-garden") ("药师家" . "apothecary-home")
     ("掌柜家" . "innkeeper-home")
     ("河边" . "riverbank") ("广场" . "village-square")))

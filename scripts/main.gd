@@ -48,6 +48,12 @@ var _last_weather := ""
 var _astar := AStarGrid2D.new()
 var _anchors := {}       # anchor name -> world position (from Marker2D nodes)
 var _npc_state := {}     # npc id -> {anchor, activity, path, step}
+var _portals := {}       # portal id -> world position (Marker2D under $World/Portals)
+var _portal_traveling := false
+var _portal_wait_release := false
+var _scene_path_cache := {}  # map id -> "scenes/xxx.tscn" (populated from Scheme)
+var _current_map_id := "village"
+var _current_music := ""
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -106,9 +112,20 @@ func _setup_audio() -> void:
 	bgm.volume_db = -10.0
 	add_child(bgm)
 
-## Load the village theme path from the catalog and start playback.
+## Kick off BGM for the starting map once the bridge is up.
 func _start_bgm() -> void:
-	var path: Variant = await Game.call_async("game:catalog-music", ["village"])
+	await _play_music_for_map(_current_map_id)
+
+## Switch the BGM stream if `map_id` declares a different track than the one
+## currently playing. No-op when the track is unchanged (e.g. the same peaceful
+## theme inside the smithy and out in the village).
+func _play_music_for_map(map_id: String) -> void:
+	var key_v: Variant = await Game.call_async("game:map-music", [map_id])
+	var key := str(key_v) if key_v != null else ""
+	if key == "" or key == _current_music:
+		return
+	_current_music = key
+	var path: Variant = await Game.call_async("game:catalog-music", [key])
 	if path == null or str(path) == "":
 		return
 	var theme_stream: AudioStream = load("res://" + str(path))
@@ -130,6 +147,7 @@ func _setup_world() -> void:
 	map_h = maxi(used.end.y, 1)
 	_build_blocked()
 	_setup_anchors()
+	_setup_portals()
 	_setup_astar()
 	player.main = self
 	_setup_camera()
@@ -158,6 +176,17 @@ func _setup_anchors() -> void:
 	for node in root.get_children():
 		if node is Node2D:
 			_anchors[str(node.name)] = node.position
+
+## Portal markers (world Portals/*): named like the portal id in data/maps.scm.
+## Godot owns the pixel; Scheme only knows (target map, target anchor, label).
+func _setup_portals() -> void:
+	_portals.clear()
+	var root := world.get_node_or_null("Portals")
+	if root == null:
+		return
+	for node in root.get_children():
+		if node is Node2D:
+			_portals[str(node.name)] = node.position
 
 ## Static grid for NPC paths. Four-way movement only (DIAGONAL_MODE_NEVER):
 ## villagers walk the roads instead of cutting through tree corners.
@@ -188,6 +217,13 @@ func _npc_by_id(id: String) -> Node2D:
 		if npc.npc_id == id:
 			return npc
 	return null
+
+## Current "map:anchor" for an NPC straight from the people snapshot, or "".
+func _sched_at(id: String) -> String:
+	for row in Game.snapshot.get("people", []):
+		if row is Array and row.size() >= 2 and str(row[0]) == id:
+			return str(row[1])
+	return ""
 
 ## ---- read-only interface for the optional GM module --------------------------
 ## The game shell never calls these; they keep the debug tool out of core logic.
@@ -257,6 +293,11 @@ func _apply_people(rows: Array) -> void:
 		var id := str(row[0])
 		var at := str(row[1])
 		var activity := str(row[2])
+		var row_map := at.get_slice(":", 0) if at.contains(":") else _current_map_id
+		if row_map != _current_map_id:
+			# Scheduled on another map: leave its state alone; _move_npcs hides
+			# the node from the live snapshot, and re-entry repath it fresh.
+			continue
 		var npc := _npc_by_id(id)
 		if npc == null:
 			continue
@@ -273,6 +314,14 @@ func _apply_people(rows: Array) -> void:
 ## disappears (no interiors yet, so the doorway stands in for the inside).
 func _move_npcs(delta: float) -> void:
 	for npc in get_tree().get_nodes_in_group("npc"):
+		# Map membership comes from the live schedule snapshot, not cached state:
+		# a villager whose routine moved to another map is dormant here.
+		var at := _sched_at(npc.npc_id)
+		var row_map := at.get_slice(":", 0) if at.contains(":") else _current_map_id
+		if row_map != _current_map_id:
+			npc.visible = false
+			npc.set_walking(false)
+			continue
 		var state: Dictionary = _npc_state.get(npc.npc_id, {})
 		if state.is_empty():
 			continue
@@ -302,6 +351,91 @@ func _move_npcs(delta: float) -> void:
 			var home: Variant = anchor_position(str(state.get("anchor", "")).get_slice(":", 1))
 			hide = home != null and npc.position.distance_to(home) < 12.0
 		npc.visible = not hide
+
+## -------------------------------------------------------------- map travel --
+## Portals are walkable spots; stepping onto one asks Scheme where it leads and
+## swaps the whole map instance. The old map's villagers are simply unloaded
+## (dormant); on the new map each villager is placed at its schedule anchor.
+
+func _enter_portal(portal_id: String) -> void:
+	if dialog_ui.is_open:
+		dialog_ui.close()
+	var result: Variant = await Game.call_async("game:enter-portal", [portal_id])
+	if not (result is Array and result.size() >= 2):
+		push_warning("[portal] bad reply for " + portal_id)
+		_portal_traveling = false
+		_portal_wait_release = true
+		return
+	var target_map := str(result[0])
+	var target_at := str(result[1])
+	await _switch_map(target_map, target_at)
+	# Do not bounce straight back while a direction is still held. Releasing the
+	# movement keys rearms portals; no timing-dependent cooldown is involved.
+	_portal_wait_release = true
+	_portal_traveling = false
+
+## Replace the live map instance with `map_id`'s scene and drop the player at
+## `at` ("map:anchor"). Rebuilds all per-map state (walkability, anchors,
+## portals, nav grid, camera) and re-seeds NPC positions from the schedule.
+func _switch_map(map_id: String, at: String) -> void:
+	_current_map_id = map_id
+	var scene_path: String = _scene_path_cache.get(map_id, "")
+	if scene_path == "":
+		scene_path = str(await Game.call_async("game:map-scene", [map_id]))
+		if scene_path == "":
+			push_error("[map] no scene declared for " + map_id)
+			return
+		_scene_path_cache[map_id] = scene_path
+	if is_instance_valid(world):
+		# Group membership must end now, not at the frame's deferred free: the new
+		# map rebuilds collision/NPC state from scene-tree groups immediately.
+		remove_child(world)
+		world.queue_free()
+	var packed: PackedScene = load("res://" + scene_path)
+	if packed == null:
+		push_error("[map] cannot load scene " + scene_path)
+		return
+	var new_world: Node2D = packed.instantiate()
+	new_world.name = "World"
+	add_child(new_world)
+	world = new_world
+	ground = new_world.get_node_or_null("Ground")
+	player = new_world.get_node_or_null("Player")
+	_setup_world()
+	# Drop the player at the destination anchor (e.g. "smithy:door").
+	var anchor_name := at.get_slice(":", 1) if at.contains(":") else at
+	if player != null and _anchors.has(anchor_name):
+		player.position = _anchors[anchor_name]
+	_place_npcs_on_entry()
+	_check_anchors()
+	Game.send("game:people")
+	await _play_music_for_map(map_id)
+
+## On entering a map, teleport every villager whose schedule is here onto their
+## anchor and seed their state so they stay put until the schedule changes.
+## Anyone scheduled elsewhere is hidden by _move_npcs.
+func _place_npcs_on_entry() -> void:
+	for row in Game.snapshot.get("people", []):
+		if not (row is Array and row.size() == 3) or row[1] == null:
+			continue
+		var id := str(row[0])
+		var at := str(row[1])
+		var row_map := at.get_slice(":", 0) if at.contains(":") else _current_map_id
+		if row_map != _current_map_id:
+			continue
+		var npc := _npc_by_id(id)
+		if npc == null:
+			continue
+		var anchor_name := at.get_slice(":", 1) if at.contains(":") else at
+		npc.visible = _anchors.has(anchor_name)
+		if _anchors.has(anchor_name):
+			npc.position = _anchors[anchor_name]
+		_npc_state[id] = {
+			"anchor": at,
+			"activity": str(row[2]),
+			"path": PackedVector2Array(),
+			"step": 0,
+		}
 
 func _setup_camera() -> void:
 	var cam: Camera2D = player.get_node_or_null("Camera2D")
@@ -503,6 +637,18 @@ func _process(delta: float) -> void:
 			Game.send("game:people")
 	_apply_people(Game.snapshot.get("people", []))
 	_move_npcs(delta)
+	if player != null and not _portal_traveling:
+		if _portal_wait_release:
+			if not _movement_held():
+				_portal_wait_release = false
+		else:
+			var player_cell := Vector2i(floori(player.position.x / TILE), floori(player.position.y / TILE))
+			for pid in _portals.keys():
+				var portal_cell := Vector2i(floori(_portals[pid].x / TILE), floori(_portals[pid].y / TILE))
+				if player_cell == portal_cell:
+					_portal_traveling = true
+					_enter_portal(pid)
+					break
 	# walk-over ore pickup
 	for ore in get_tree().get_nodes_in_group("ore"):
 		if not is_instance_valid(ore) or player == null:
@@ -511,6 +657,10 @@ func _process(delta: float) -> void:
 			ore.queue_free()
 			# Fire-and-forget; the HUD updates when the reply lands.
 			Game.send("game:take-ore")
+
+func _movement_held() -> bool:
+	return Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right") \
+		or Input.is_action_pressed("move_up") or Input.is_action_pressed("move_down")
 
 func _nearest_npc(from: Vector2, radius: float) -> Node2D:
 	var best: Node2D = null

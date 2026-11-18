@@ -103,7 +103,12 @@
     (reload-modules! (cdr mods))))
 
 (define (game:reload)
-  (reload-modules! *data-modules*)
+  ;; re-requiring maps.scm re-runs (define *current-map* 'village), so save
+  ;; and restore the map the player is actually on; otherwise portals on the
+  ;; current map stop resolving after a hot reload.
+  (let ((saved-map *current-map*))
+    (reload-modules! *data-modules*)
+    (set! *current-map* saved-map))
   (report-schedule-problems)
   (reset-quest!)
   (reset-talk!)

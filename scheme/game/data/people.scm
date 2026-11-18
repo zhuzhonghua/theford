@@ -31,9 +31,9 @@
       (display = "老王")
       (persona = "你正在扮演老王，渡口村东头的铁匠。老王性格豪爽、说话直来直去，常用『哼』『嘿』『得嘞』这类口头语。他正打算给村里的守卫打一把剑，但手头缺铁矿石，正为此发愁。")
       (schedule = (list
-                    (table (from = 6) (to = 12) (at = "village:smithy") (activity = 'smithing))
+                    (table (from = 6) (to = 12) (at = "smithy:forge") (activity = 'smithing))
                     (table (from = 12) (to = 13) (at = "village:village-square") (activity = 'lunch))
-                    (table (from = 13) (to = 19) (at = "village:smithy") (activity = 'smithing))
+                    (table (from = 13) (to = 19) (at = "smithy:forge") (activity = 'smithing))
                     (table (from = 19) (to = 22) (at = "village:inn-yard") (activity = 'drinking))
                     (table (from = 22) (to = 6) (at = "village:smith-home") (activity = 'sleep))))
       (lines = (table

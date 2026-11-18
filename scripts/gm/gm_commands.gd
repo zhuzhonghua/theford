@@ -31,7 +31,7 @@ const HELP := "GM 指令（F8 开关）:
   npc smith auto            取消老王的覆盖
   npc clear                 取消全部覆盖
   tp smith                  传送到老王身边
-  goto smithy               传送到锚点
+  goto smithy-door          传送到锚点
   anchors                   列出全部锚点
   talk smith                传送到老王身边并打开对话
   reload                    热重载数据（等同 F5）
