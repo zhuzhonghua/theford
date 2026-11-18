@@ -26,6 +26,14 @@ func _physics_process(delta: float) -> void:
 	if main and main.dialog_ui and main.dialog_ui.is_open:
 		_animate(delta, false)
 		return
+	if main and main.gm and main.gm.is_open:
+		_animate(delta, false)
+		return
+	# Any focused text field owns the keyboard: typing w/a/s/d must never walk.
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit:
+		_animate(delta, false)
+		return
 	var dir := Vector2.ZERO
 	if Input.is_action_pressed("move_left"):
 		dir.x -= 1

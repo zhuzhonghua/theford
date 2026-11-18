@@ -17,8 +17,12 @@
 ;;   game:take-ore              (quest.scm)
 ;;   game:talk npc-id topic     (talk.scm)
 ;;   game:tick                  (time.scm) advance one tick, returns game:status
+;;   game:debug-set-time        (gm.scm) jump the clock, returns game:status
+;;   game:debug-advance         (gm.scm) advance N minutes, returns game:status
+;;   game:debug-set-weather     (gm.scm) pin/clear weather, returns game:status
 ;;   game:status                (here) quest text + ore + clock + weather
 ;;   game:people                (here) id + current anchor + activity per npc
+;;   game:gm-plan text          (gm.scm) LLM turns free text into one GM command
 ;;   game:reload                (here) re-read data files, reset state
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
@@ -34,6 +38,7 @@
 ;;   data/people.scm  roster: names, personas, canned lines, schedules (see npcs.scm)
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
+;;   gm.scm     optional debug module: deterministic clock/weather, NL->command
 ;;   npcs.scm   npc lookups (display/persona/lines/schedule) over data/people.scm
 ;;   quest.scm  quest state machine, carried/delivered counts, history
 ;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
@@ -54,6 +59,9 @@
 (require "game.npcs")
 (require "game.quest")
 (require "game.talk")
+; Optional debug module (see gm.scm). Remove this line and the file to ship
+; without the GM console; nothing else references it.
+(require "game.gm")
 
 ;; ---- aggregated status -------------------------------------------------------
 ;; (quest-text carried day hour minute weather) — one reply feeds the whole HUD.

@@ -49,6 +49,13 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
 - **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
   模型名与 prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
+- **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
+  `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；输入 `help` 看全部指令
+- 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
+  （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
+  生成受 grammar 约束，模型只能输出合法指令
+- GM 是独立模块，发布时整体删除 `scripts/gm/` 与 `scheme/game/gm.scm`，再去掉
+  `scheme/game/main.scm` 末尾的 `(require "game.gm")` 即可；主游戏不依赖它
 
 ## 已知边界
 

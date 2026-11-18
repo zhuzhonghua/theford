@@ -40,6 +40,10 @@
 (define *model* #f)
 (define *ctx* #f)
 (define *smpl* #f)
+;; Optional post-boot hook. The debug module (gm.scm) installs a thunk here
+;; that creates its own samplers once the model is loaded; deleting gm.scm
+;; leaves this #f and the game runs unchanged.
+(define *post-boot-hook* #f)
 ;; Shown in the mechanism HUD: which local model the village is speaking with.
 (define *model-desc* "")
 (define *llama-version* "")
@@ -75,6 +79,7 @@
   (set! *model-desc*
         (hash-table-ref (llm-model-info *model*) "desc"))
   (set! *use-llm* #t)
+  (if *post-boot-hook* (*post-boot-hook*))
   )
 
 (define (game:boot)

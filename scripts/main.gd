@@ -33,7 +33,11 @@ var map_h := 0
 
 var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
+## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
+## release build without changing this shell.
+const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
 var mech: MechHud = null
+var gm: Node = null
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
 var _daylight: CanvasModulate = null
@@ -59,6 +63,7 @@ func _ready() -> void:
 	mech = MechHud.new()
 	add_child(mech)
 	mech.setup(font)
+	_setup_gm(font)
 	hud_label.text = "……（启动中）"
 	_setup_audio()
 	_setup_world()
@@ -80,6 +85,17 @@ func _on_bridge_ready(_llm: bool) -> void:
 	_start_bgm()
 	Game.send("game:people")
 	_check_anchors()
+
+## Optional GM console: the file is the whole debug module (see scripts/gm/).
+func _setup_gm(font: Font) -> void:
+	if not ResourceLoader.exists(GM_SCRIPT_PATH):
+		return
+	var script: Script = load(GM_SCRIPT_PATH)
+	if script == null:
+		return
+	gm = script.new()
+	add_child(gm)
+	gm.setup(self, font)
 
 ## BGM player is created early; the stream is loaded from the catalog once
 ## the Scheme bridge is up (see _start_bgm). This keeps asset paths in
@@ -173,6 +189,20 @@ func _npc_by_id(id: String) -> Node2D:
 			return npc
 	return null
 
+## ---- read-only interface for the optional GM module --------------------------
+## The game shell never calls these; they keep the debug tool out of core logic.
+func npc_node(id: String) -> Node2D:
+	return _npc_by_id(id)
+
+func npc_progress(id: String) -> Dictionary:
+	return _npc_state.get(id, {})
+
+func anchor_names() -> Array:
+	return _anchors.keys()
+
+func anchor_position(name: String) -> Variant:
+	return _anchors.get(name, null)
+
 func _cell_center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * TILE + TILE * 0.5, cell.y * TILE + TILE * 0.5)
 
@@ -219,6 +249,8 @@ func _path_to_anchor(at: String, from_pos: Vector2, self_id: String = "") -> Pac
 ## Apply one `game:people` reply: repath only when the anchor changed, so an
 ## NPC keeps walking when a per-second refresh lands mid-route.
 func _apply_people(rows: Array) -> void:
+	if gm != null:
+		rows = gm.apply_overrides(rows)
 	for row in rows:
 		if not (row is Array and row.size() == 3) or row[1] == null:
 			continue
@@ -262,7 +294,14 @@ func _move_npcs(delta: float) -> void:
 			npc.set_walking(true)
 		else:
 			npc.set_walking(false)
-		npc.visible = not (step >= path.size() and activity == "sleep")
+		var hide := step >= path.size() and activity == "sleep"
+		if hide:
+			# Only vanish once actually home. A sleep anchor that is unknown or
+			# unreachable yields an empty path, and hiding immediately would make
+			# villagers pop out of existence wherever they happen to stand.
+			var home: Variant = anchor_position(str(state.get("anchor", "")).get_slice(":", 1))
+			hide = home != null and npc.position.distance_to(home) < 12.0
+		npc.visible = not hide
 
 func _setup_camera() -> void:
 	var cam: Camera2D = player.get_node_or_null("Camera2D")
@@ -289,7 +328,9 @@ func _refresh_hud() -> void:
 	if hud_label == null:
 		return
 	var weather := str(Game.snapshot.get("weather", "sun"))
-	var hint := "" if (mech != null and mech.is_showing()) else "F1 机制   F5 热重载"
+	var hint := ""
+	if not (mech != null and mech.is_showing()):
+		hint = "F1 机制   F5 热重载" + ("   F8 GM 指令" if gm != null else "")
 	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n铁矿石背包 x%d   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
@@ -310,7 +351,8 @@ func _activity_line() -> String:
 			continue
 		var npc := _npc_by_id(str(row[0]))
 		var who: String = npc.display_name if npc != null else str(row[0])
-		var activity := str(row[2])
+		var state: Dictionary = _npc_state.get(str(row[0]), {})
+		var activity := str(state.get("activity", row[2]))
 		parts.append("%s：%s" % [who, str(ACTIVITY_NAMES.get(activity, activity))])
 	return "   ".join(parts)
 
@@ -411,7 +453,18 @@ func _daylight_color(hour: float) -> Color:
 
 ## ------------------------------------------------------------------ input --
 
+## GM console toggle. `_input` (not `_unhandled_input`) so the key still closes
+## the console while its LineEdit has focus.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F8:
+			if gm != null:
+				gm.toggle()
+				get_viewport().set_input_as_handled()
+
 func _unhandled_input(event: InputEvent) -> void:
+	if gm != null and gm.is_open:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F1:
 			if mech != null:
@@ -437,10 +490,12 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	_maybe_capture_frame()
-	if Game.booted and Game.vm_error == "":
+	var rate: float = gm.speed() if gm != null else 1.0
+	if Game.booted and Game.vm_error == "" and rate > 0.0:
 		_tick_accumulator += delta
-		while _tick_accumulator >= TICK_SECONDS:
-			_tick_accumulator -= TICK_SECONDS
+		var tick_step := TICK_SECONDS / rate
+		while _tick_accumulator >= tick_step:
+			_tick_accumulator -= tick_step
 			Game.send("game:tick")
 		_people_accumulator += delta
 		while _people_accumulator >= PEOPLE_SECONDS:

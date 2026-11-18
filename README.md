@@ -47,6 +47,9 @@ Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tr
 - Blacksmith Lao Wang: accept the quest → collect 3 iron ore → hand them in → done
 - Chen Po and Manager Zhang: free conversation, generated locally and different every time
 - **F1** opens the mechanism HUD: topic → intent, Scheme verdict, line source (LLM / cache / script), model name, and prefill/decode throughput. Set `THEFORD_MECHANISM=0` to hide it.
+- **F8** opens the GM console: `time 11:00` jumps the clock, `speed 10` accelerates time, `weather rain` pins the weather, `npc smith inn-yard` overrides a schedule, `people` dumps state. Type `help` for every command.
+- Natural language works too: type `让老王去酒馆` or `把时间暂停` and the local model translates it into one deterministic command (`npc smith inn-yard drinking`, `speed 0`), which is then executed and shown in the log. Generation is grammar-constrained, so the model can only emit a valid command.
+- The GM tooling is a self-contained module: for a release build, delete `scripts/gm/` and `scheme/game/gm.scm`, then remove the `(require "game.gm")` line from `scheme/game/main.scm`. The game itself does not depend on it.
 
 ## Known limitations
 

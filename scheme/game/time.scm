@@ -73,6 +73,10 @@
 
 ;; ---- weather -----------------------------------------------------------------
 
+;; GM override: when set, current-weather returns it regardless of the seed.
+;; reset-time! clears it so a hot reload goes back to the authored weather.
+(define *weather-override* #f)
+
 ;; First matching fixed-weather span, or #f. A span is a table with day and
 ;; weather, optional from/to hours ([from, to), default whole day).
 (define (weather-span day hour)
@@ -99,8 +103,10 @@
                     (else 'fog)))))))
 
 (define (current-weather)
-  (let ((c (clock-at *tick*)))
-    (weather-at (car c) (cadr c))))
+  (if *weather-override*
+      *weather-override*
+      (let ((c (clock-at *tick*)))
+        (weather-at (car c) (cadr c)))))
 
 (define (time-status)
   (let ((c (clock-at *tick*)))
@@ -108,8 +114,10 @@
 
 (define (reset-time!)
   (set! *tick* 0)
-  (set! *rng-state* (world-seed)))
+  (set! *rng-state* (world-seed))
+  (set! *weather-override* #f))
 
 (define (game:tick)
   (set! *tick* (+ *tick* 1))
   (game:status))
+

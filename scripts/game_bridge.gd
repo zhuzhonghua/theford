@@ -179,7 +179,7 @@ func _on_ready(m: Dictionary) -> void:
 ## Cache the state-bearing parts of replies so the HUD never calls the VM.
 func _absorb(fn: String, result: Variant) -> void:
 	match fn:
-		"game:status", "game:tick":
+		"game:status", "game:tick", "game:debug-set-time", "game:debug-advance", "game:debug-set-weather":
 			if result is Array and result.size() == 6:
 				_write_snapshot(result[0], result[1], result.slice(2))
 		"game:greet":
