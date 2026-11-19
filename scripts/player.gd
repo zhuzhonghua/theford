@@ -64,14 +64,15 @@ func _physics_process(delta: float) -> void:
 
 ## Scripted walking for acceptance/demo playback: same 4-direction movement,
 ## collision and walk frames as the keyboard path, so a replay reads as a
-## person playing instead of a teleport. Returns true once within ~1.5 px.
+## person playing instead of a teleport. Lands exactly on the point: a
+## sub-pixel shortfall would drag the feet box into the next row.
 func walk_to(point: Vector2, timeout := 8.0) -> bool:
 	scripted = true
 	_scripted_target = point
 	var elapsed := 0.0
 	var stuck := 0.0
 	var last := position
-	while position.distance_to(point) > 1.5:
+	while position.distance_to(point) > 0.6:
 		await get_tree().physics_frame
 		elapsed += get_physics_process_delta_time()
 		if position.distance_to(last) < 0.05:
@@ -84,7 +85,7 @@ func walk_to(point: Vector2, timeout := 8.0) -> bool:
 	_scripted_dir = Vector2.ZERO
 	scripted = false
 	_animate(0.0, false)
-	return position.distance_to(point) <= 1.5
+	return position.distance_to(point) <= 0.6
 
 func stop_scripted() -> void:
 	scripted = false
@@ -93,7 +94,7 @@ func stop_scripted() -> void:
 
 func _step_scripted(delta: float) -> void:
 	var remaining := _scripted_target - position
-	if remaining.length() <= 1.5:
+	if remaining.length() <= 0.6:
 		_scripted_dir = Vector2.ZERO
 		_animate(delta, false)
 		return

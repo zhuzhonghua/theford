@@ -1,31 +1,77 @@
-;; inventory.scm — the player's bag, minimal form for Phase 5.
+;; inventory.scm — the player's bag: stacks, slots, and the held tool.
 ;;
-;; At this stage the bag is one ordered alist of (type . count). It exists so
-;; a chest can hand over a tool and the use verb can ask "is a tool carried?".
-;; Phase 6 replaces it with item stacks, a capacity limit and a UI; nothing
-;; else in the engine should read *bag* directly.
-;;
-;; The ore counter used by the smith quest stays in quest.scm until that
-;; conversion.
+;; A stack is one row per carried type, (type . count): things of one kind
+;; merge instead of taking a row each. A slot holds at most `stack-max` of a
+;; kind; a piece — a tool, a weapon, anything worn — never stacks, one to a
+;; slot. The bag has `bag-slots` slots (three rows of ten, the shape the
+;; reference bag has). Nothing else in the engine reads *bag* directly:
+;; callers add, remove and count, and the bridge asks for a view.
 
 (require "game.util")
 (require "game.data.types")
 
+(define stack-max 999)  ; how many of a kind fit one slot
+(define bag-slots 30)   ; slots in the bag itself
+
 (define *bag* '())  ; ((type-symbol . count) ...)
 
-(define (bag-add! type n)
-  (let ((have (bag-count type)))
-    (set! *bag* (alist-put *bag* type (+ have n)))))
+;; ---- slots ------------------------------------------------------------------
+
+;; A piece never stacks: a tool, a weapon, anything worn.
+(define (piece? type)
+  (or (type-has-tag? type "tool")
+      (type-has-tag? type "weapon")))
+
+;; Slots one row takes: pieces one each, anything else one per stack-max.
+(define (row-slots type n)
+  (cond ((<= n 0) 0)
+        ((piece? type) n)
+        (else (+ 1 (quotient (- n 1) stack-max)))))
+
+(define (bag-slots-used)
+  (if (null? *bag*)
+      0
+      (apply + (map (lambda (row) (row-slots (car row) (cdr row))) *bag*))))
 
 (define (bag-count type)
   (let ((n (alist-get *bag* type)))
     (if n n 0)))
 
+;; Whether `n` more of `type` fit: a stack may still have room in its last
+;; slot, so compare the slots used after with the slots used before.
+(define (bag-fits? type n)
+  (<= (+ (- (bag-slots-used) (row-slots type (bag-count type)))
+         (row-slots type (+ (bag-count type) n)))
+      bag-slots))
+
+;; ---- mutations --------------------------------------------------------------
+
+;; Add `n` of `type`; the new count, or #f when no slot is left for them.
+(define (bag-add! type n)
+  (if (bag-fits? type n)
+      (let ((have (bag-count type)))
+        (set! *bag* (alist-put *bag* type (+ have n)))
+        (+ have n))
+      #f))
+
+;; Remove up to `n` of `type`; the count left in the bag.
+(define (bag-remove! type n)
+  (let ((left (- (bag-count type) n)))
+    (if (<= left 0)
+        (begin
+          (set! *bag* (alist-delete type *bag* eq?))
+          0)
+        (begin
+          (set! *bag* (alist-put *bag* type left))
+          left))))
+
 (define (bag-empty!)
   (set! *bag* '()))
 
-;; First carried type that has `tag`, or #f. Phase 5 only needs "a tool is in
-;; the bag"; equipping (Phase 6) will pick which one is in hand.
+;; ---- held tool --------------------------------------------------------------
+
+;; First carried type that has `tag`, or #f. The F verb only needs "a tool is
+;; carried"; picking which one is in hand is the equipment slot (6.4).
 (define (bag-find-tag tag)
   (let loop ((types (map car *bag*)))
     (cond ((null? types) #f)
@@ -42,10 +88,20 @@
                (type-name (car kv))))
        *bag*))
 
-;; Bridge view: (rows held-type-string held-name). Godot uses the held tool to
-;; show the F verb hint; the rows feed the HUD bag line.
+;; ---- bridge entries --------------------------------------------------------
+
+;; (game:take item-type) — put one thing into the bag. #f when no slot is left
+;; for it, so the shell can leave it lying in the world.
+(define (game:take item)
+  (let ((type (string->symbol item)))
+    (if (bag-add! type 1) #t #f)))
+
+;; View: (rows held-type-string held-name slots-used slots-max). Godot uses the
+;; held tool for the F verb hint and the slot numbers for the HUD bag line.
 (define (game:bag)
   (let ((held (held-tool)))
     (list (bag-rows)
           (if held (symbol->string held) "")
-          (if held (type-name held) ""))))
+          (if held (type-name held) "")
+          (bag-slots-used)
+          bag-slots)))

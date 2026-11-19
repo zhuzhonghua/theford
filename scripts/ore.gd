@@ -1,7 +1,7 @@
 extends Sprite2D
 ## ore.gd — a mineable rock pickup placed on the map.
 ## The pickup itself is presentation-only: main.gd notices the player walking
-## over it and asks Scheme (`game:take-ore`) to update the carried count.
+## within reach and asks Scheme (`game:take`) to put it in the bag.
 
 func _ready() -> void:
 	add_to_group("ore")

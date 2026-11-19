@@ -38,6 +38,8 @@ var snapshot := {
 	"weather": "sun",
 	"people": [],       # [[id, "map:anchor", activity], ...]
 	"bag": [],          # [[type, count, display-name], ...]
+	"bag_slots": 0,     # slots the carried stacks take
+	"bag_capacity": 30, # slots the bag has
 	"held": "",         # tool type-string in hand, or ""
 	"model": "",
 	"llm_version": "",
@@ -196,9 +198,6 @@ func _absorb(fn: String, result: Variant) -> void:
 			if result is Array and result.size() >= 5 and result[4] is Array:
 				var learned: bool = result.size() >= 4 and bool(result[3])
 				_store_turn(result[4], learned)
-		"game:take-ore":
-			if result is int:
-				_write_snapshot(snapshot["quest_text"], result)
 		"game:reload":
 			snapshot["last_turn"] = {}
 			if result is Array and result.size() == 6:
@@ -212,6 +211,8 @@ func _absorb(fn: String, result: Variant) -> void:
 			if result is Array and result.size() >= 1:
 				snapshot["bag"] = result[0] if result[0] is Array else []
 				snapshot["held"] = str(result[1]) if result.size() >= 2 else ""
+				snapshot["bag_slots"] = int(result[3]) if result.size() >= 4 else 0
+				snapshot["bag_capacity"] = int(result[4]) if result.size() >= 5 else 30
 				snapshot_changed.emit()
 
 ## NPC schedule rows: [id, anchor, activity]. Repaint only on a real change so
@@ -309,7 +310,10 @@ func load_async(path: String) -> Variant:
 ## Dev hot reload: re-read scheme/game/data/*.scm on the worker and reset the
 ## quest, talk caches and clock. Content edits take effect without restarting Godot.
 func reload_data() -> Variant:
-	return await call_async("game:reload", [])
+	var result: Variant = await call_async("game:reload", [])
+	# The reload empties the bag; the status reply does not carry it, so ask.
+	send("game:bag")
+	return result
 
 func _push(msg: Dictionary) -> void:
 	_mutex.lock()

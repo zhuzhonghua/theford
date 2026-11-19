@@ -2351,7 +2351,7 @@ npc_id = "innkeeper"
 display_name = "张掌柜"
 
 [node name="Player" type="Sprite2D" parent="." unique_id=1685146 instance=ExtResource("11_kpybi")]
-position = Vector2(392, 280)
+position = Vector2(376, 424)
 
 [node name="Sign" type="Sprite2D" parent="." groups=["interactable"]]
 position = Vector2(344, 240)

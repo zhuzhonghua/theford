@@ -11,11 +11,12 @@
 (define *world*
   (table
     (seed = 7)
-    ;; Player spawn in world.tscn is (392,280) pixels; TILE is 16 in main.gd.
+    ;; Player spawn in world.tscn is (376,424) pixels — the river mouth at the
+    ;; south end of the village; TILE is 16 in main.gd.
     (start = (table
                (map = "village")
-               (x = 24)
-               (y = 17)))
+               (x = 23)
+               (y = 26)))
     (startHour = 8)
     (params = (table
                 (reach = 1)

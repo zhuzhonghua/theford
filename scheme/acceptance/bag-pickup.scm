@@ -1,0 +1,57 @@
+;;; Phase 6.1 验收：磁吸拾取与背包栈（从河口一路走到铁匠铺和村西）。
+;;; GM 中输入：load bag-pickup
+;;;
+;;; 全程按人玩的节奏：开场站在最南边的河口（也就是游戏的出生点），
+;;; 走村道去铁匠铺、从门口走进屋、屋里走到箱子旁按 E 拿斧头、出门砍树，
+;;; 再绕到村西北老王家门口捡矿石。只有 `place` 这一下把玩家归位到起点。
+;;; 时间定在午饭点：陈婆去了旅店，路上没人挡道。
+;;; 脚本不还原场景：跑完后斧头、两根原木和一块矿石都留在背包里。
+
+(define (acceptance:steps)
+  (list
+    (list "note" "Phase 6.1：午饭点的村子。开场在河南岸的滩上，先往北走进村" "2.6")
+    (list "gm" "speed 0")
+    (list "gm" "time 12:30")
+    (list "place" "village" "village:riverbank")
+    (list "assert-map" "village")
+    (list "note" "沿村道往北，路过广场到铁匠铺门口" "2.2")
+    (list "walk" "smithy-door")
+    (list "note" "门就在正上方，按方向键走进去（切图是过门触发的，不是瞬移）" "1.8")
+    (list "move" "move_up" "smithy")
+    (list "assert-map" "smithy")
+    (list "wait" "0.4")
+    (list "note" "铺子里走到箱子旁，按 E 开箱拿斧头" "1.8")
+    (list "walk-interact")
+    (list "assert-bag" "item/tool/axe" "1")
+    (list "note" "工具按件占一格：背包现在是 1/30 格" "1.6")
+    (list "assert-bag-slots" "1")
+    (list "note" "走回门口，按方向键出屋" "1.6")
+    (list "walk" "door")
+    (list "move" "move_down" "village")
+    (list "assert-map" "village")
+    (list "wait" "0.4")
+    (list "note" "门口正上方就是那道门，先侧身让开一步再往树那边走" "1.8")
+    (list "key" "move_left" "0.4")
+    (list "note" "走到门口上方那棵树旁，第一斧" "1.8")
+    (list "walk-use")
+    (list "assert-last-entity-type" "fixture/tree")
+    (list "assert-last-entity-hp" "3")
+    (list "note" "等叶子落完，再补一斧把树砍倒" "1.8")
+    (list "wait" "0.6")
+    (list "note" "树倒了：两根原木掉在脚边，被磁吸进背包，同类合并成一格" "2.0")
+    (list "use")
+    (list "wait" "0.9")
+    (list "assert-last-entity-type" "fixture/stump")
+    (list "assert-bag" "item/material/log" "2")
+    (list "note" "地上看不到原木了：两块都被背包收走并释放，只剩一个矮树桩" "1.8")
+    (list "assert-bag-slots" "2")
+    (list "assert-group-count" "log" "0")
+    (list "note" "绕到村西头，老王家门口还躺着一块矿石" "2.2")
+    (list "walk" "smith-home")
+    (list "assert-near" "smith-home")
+    (list "note" "走到两格以内，矿石自己飞进背包，和别的材料各占一格" "2.0")
+    (list "wait" "0.6")
+    (list "assert-bag" "item/material/ore" "1")
+    (list "assert-bag-slots" "3")
+    (list "gm" "speed 1")
+    (list "note" "验收完成：走路、过门、开箱、砍树、磁吸与入栈都对得上" "2.4")))

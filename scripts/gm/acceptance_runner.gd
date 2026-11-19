@@ -320,6 +320,17 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：背包 %s x%d" % [want_item, want_n]
 			if have != want_n:
 				return "期望 %s x%d，实际 x%d" % [want_item, want_n, have]
+		"assert-bag-slots":
+			if step.size() < 2:
+				return "assert-bag-slots 缺少槽位数"
+			var want_slots := int(step[1])
+			var slots_view: Variant = await Game.call_async("game:bag", [])
+			var used_slots := -1
+			if slots_view is Array and slots_view.size() >= 4:
+				used_slots = int(slots_view[3])
+			_current.text = "断言：背包占用 %d 格" % want_slots
+			if used_slots != want_slots:
+				return "期望 %d 格，实际 %d 格" % [want_slots, used_slots]
 		"assert-group-count":
 			if step.size() < 3:
 				return "assert-group-count 需要组名与数量"

@@ -14,13 +14,13 @@
 ;;   game:npc-ids               (npcs.scm)
 ;;   game:topics npc-id         (talk.scm)
 ;;   game:greet npc-id          (talk.scm)
-;;   game:take-ore              (quest.scm)
+;;   game:take item-type        (inventory.scm) put one thing into the bag
 ;;   game:talk npc-id topic     (talk.scm)
 ;;   game:tick                  (time.scm) advance one tick, returns game:status
 ;;   game:debug-set-time        (gm.scm) jump the clock, returns game:status
 ;;   game:debug-advance         (gm.scm) advance N minutes, returns game:status
 ;;   game:debug-set-weather     (gm.scm) pin/clear weather, returns game:status
-;;   game:status                (here) quest text + ore + clock + weather
+;;   game:status                (here) quest text + ore carried + clock + weather
 ;;   game:people                (here) id + current anchor + activity per npc
 ;;   game:gm-plan text          (gm.scm) LLM turns free text into one GM command
 ;;   game:reload                (here) re-read data files, reset state
@@ -44,7 +44,7 @@
 ;;   data/rules.scm   rule table: host selector + condition tree + effect list
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   entities.scm runtime registry: id -> (type hp tags props); transforms keep props
-;;   inventory.scm type->count bag, held-tool lookup for the F verb
+;;   inventory.scm item stacks: counts, slot capacity, held-tool lookup
 ;;   rules.scm  event dispatch: specificity, condition tree, effect ops, tick stages
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   gm.scm     optional debug module: deterministic clock/weather, NL->command
@@ -79,7 +79,7 @@
 ;; (quest-text carried day hour minute weather) — one reply feeds the whole HUD.
 
 (define (game:status)
-  (append (list (quest-text) *carried*) (time-status)))
+  (append (list (quest-text) (ore-carried)) (time-status)))
 
 ;; ---- npc schedules -----------------------------------------------------------
 ;; (id anchor activity) per villager at the current clock hour. Anchor names are
@@ -128,4 +128,7 @@
   (reset-quest!)
   (reset-talk!)
   (reset-time!)
+  ;; A hot reload is "boot again": the bag is run-time state, so the player
+  ;; starts empty instead of keeping items from the previous data set.
+  (bag-empty!)
   (game:status))

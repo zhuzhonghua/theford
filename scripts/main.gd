@@ -15,6 +15,10 @@ const TREE_REGION := Rect2(0, 32, 48, 48)
 const LOG_REGION := Rect2(208, 208, 32, 16)
 const NIGHT_COLOR := Color(0.46, 0.52, 0.70)
 const DAY_COLOR := Color(1.0, 0.98, 0.92)
+## What the player picks up by walking over it: group -> item type.
+const PICKUP_REACH := 2 * TILE
+const PICKUP_RETRY_MS := 1000
+const PICKUP_TYPES := {"ore": "item/material/ore", "log": "item/material/log"}
 const WEATHER_NAMES := {
 	"sun": "晴", "cloud": "阴", "rain": "雨", "storm": "暴雨", "fog": "雾",
 }
@@ -428,15 +432,17 @@ func _transform_entity(eid: String, new_type: String) -> void:
 	var cell: Vector2i = _foot_cell(node.position)
 	match new_type:
 		"fixture/stump":
-			# Show the cut-log graphic in place of the canopy, and free the
-			# cell once the trunk no longer blocks movement.
+			# A squat, dark trunk base instead of the dropped-log art: the log
+			# sprite reads as "wood still on the ground", which is confusing
+			# next to the two logs that really did get picked up.
 			var sprite := node as Sprite2D
 			if sprite != null:
 				sprite.region_enabled = true
 				sprite.region_rect = LOG_REGION
-				sprite.centered = false
-				sprite.offset = Vector2(-16, -16)
-				sprite.modulate = Color(0.82, 0.72, 0.60)
+				sprite.centered = true
+				sprite.offset = Vector2(0, -7)
+				sprite.scale = Vector2(0.45, 0.9)
+				sprite.modulate = Color(0.62, 0.50, 0.40)
 				sprite.z_index = 0
 			_release_cell(node, cell)
 			_entity_types[eid] = "fixture/stump"
@@ -448,6 +454,7 @@ func _transform_entity(eid: String, new_type: String) -> void:
 				sprite.region_rect = TREE_REGION
 				sprite.centered = false
 				sprite.offset = Vector2(-24, -48)
+				sprite.scale = Vector2.ONE
 				sprite.modulate = Color.WHITE
 			_block_cell(node, cell)
 			_entity_types[eid] = "fixture/tree"
@@ -880,11 +887,10 @@ func _refresh_hud() -> void:
 			hint]
 	_refresh_weather()
 
-## Bag readout: ore count plus any carried item stacks. The held tool comes from
-## Scheme's bag view, not from a GDScript inventory copy.
+## Bag readout: slots used, every carried stack, and the tool in hand. The
+## counts come from Scheme's bag view, not from a GDScript inventory copy.
 func _bag_line() -> String:
 	var parts: PackedStringArray = []
-	parts.append("铁矿石 x%d" % int(Game.snapshot.get("carried", 0)))
 	var held := str(Game.snapshot.get("held", ""))
 	var held_name := ""
 	for row in Game.snapshot.get("bag", []):
@@ -895,7 +901,9 @@ func _bag_line() -> String:
 		parts.append("%s x%d" % [display, int(row[1])])
 		if type_id == held:
 			held_name = display
-	var line := "背包：" + "，".join(parts)
+	var line := "背包 %d/%d 格：" % [int(Game.snapshot.get("bag_slots", 0)),
+			int(Game.snapshot.get("bag_capacity", 30))]
+	line += "，".join(parts) if not parts.is_empty() else "空"
 	if held_name != "":
 		line += "   手持：" + held_name
 	return line
@@ -1090,14 +1098,36 @@ func _process(delta: float) -> void:
 					_portal_traveling = true
 					_enter_portal(pid)
 					break
-	# walk-over ore pickup
-	for ore in get_tree().get_nodes_in_group("ore"):
-		if not is_instance_valid(ore) or player == null:
-			continue
-		if player.position.distance_to(ore.position) < 10.0:
-			ore.queue_free()
-			# Fire-and-forget; the HUD updates when the reply lands.
-			Game.send("game:take-ore")
+	# Magnet pickup: a dropped thing within reach flies into the bag while a
+	# slot takes it. Two tiles, the reach the reference's magnet has.
+	if player != null:
+		for group in PICKUP_TYPES.keys():
+			for node in get_tree().get_nodes_in_group(group):
+				if not is_instance_valid(node):
+					continue
+				if player.position.distance_to(node.position) < PICKUP_REACH:
+					_try_pick(node, PICKUP_TYPES[group])
+
+## Hand one dropped thing to Scheme; free the node only when the bag took it.
+## A full bag leaves the thing lying on the ground and retries a moment later,
+## so standing on it does not flood the logic thread with take requests.
+func _try_pick(node: Node2D, type_id: String) -> void:
+	if node.has_meta("pick_in_flight"):
+		return
+	if Time.get_ticks_msec() < int(node.get_meta("pick_ready_at", 0)):
+		return
+	node.set_meta("pick_in_flight", true)
+	var ok: Variant = await Game.call_async("game:take", [type_id])
+	if not is_instance_valid(node):
+		return
+	if bool(ok):
+		# queue_free waits for the end of the frame, so the in-flight mark stays
+		# on: the pickup loop must not take the same node twice.
+		node.queue_free()
+		Game.send("game:bag")
+		return
+	node.remove_meta("pick_in_flight")
+	node.set_meta("pick_ready_at", Time.get_ticks_msec() + PICKUP_RETRY_MS)
 
 ## Pull effects queued by Scheme's tick hook (a stump growing back). Runs at
 ## the same cadence as the people refresh, not every frame.

@@ -7,16 +7,19 @@
 ;;
 ;; Public surface (unchanged so talk.scm keeps working):
 ;;   *quest-state*  symbol: not-offered | accepted | completed
-;;   *carried*      ore picked up but not handed in
+;;   ore-carried    ore picked up but not handed in (the bag's ore stack)
 ;;   *delivered*    ore handed to the smith
 ;;   quest-text     current HUD description
 ;;   apply-intent   (status . reason) for accept | give | chat
 ;;   verdict-hint   LLM steering per verdict status
-;;   game:take-ore  pickup one ore
 ;;   (game:status aggregates quest + clock; it lives in main.scm)
+;;
+;; Counts are not mirrored here: what the smith's objective counts is the bag's
+;; ore stack (inventory.scm), so taking and handing in move the same numbers.
 
 (require "game.util")
 (require "game.data.quests")
+(require "game.inventory")
 
 ;; The active quest is the smith-ore chain (only one quest for now).
 (define *active-quest* 'smith-ore)
@@ -52,7 +55,7 @@
 (define (quest-topic-menu)
   (let* ((stage (current-stage))
          (key (cond ((not (eq? *quest-state* 'accepted)) 'topics)
-                    ((> *carried* 0) 'topics-carry)
+                    ((> (ore-carried) 0) 'topics-carry)
                     (else 'topics-empty))))
     (table-ref stage key)))
 
@@ -63,9 +66,12 @@
 ;; ---- mutable state -----------------------------------------------------------
 
 (define *stage* (quest-field 'start 10))  ; current stage number
-(define *carried* 0)
 (define *delivered* 0)
 (define *histories* '())
+
+;; What the objective counts is what the player actually carries.
+(define (ore-carried)
+  (bag-count 'item/material/ore))
 
 ;; The state symbol comes from the stage's own data, so new stages need no
 ;; mapping table in code.
@@ -80,10 +86,10 @@
   (set! *quest-state* (stage->state n)))
 
 ;; Back to the quest's start, as if the game just booted. Used by game:reload
-;; after the data files have been re-read.
+;; after the data files have been re-read; game:reload empties the bag right
+;; after, so the whole run starts from the same state.
 (define (reset-quest!)
   (set-stage! (quest-field 'start 10))
-  (set! *carried* 0)
   (set! *delivered* 0)
   (set! *histories* '()))
 
@@ -117,7 +123,7 @@
     (string-replace-all
       (string-replace-all
         (string-replace-all s "{delivered}" (number->string *delivered*))
-        "{carried}" (number->string *carried*))
+        "{carried}" (number->string (ore-carried)))
       "{need}" (number->string need))))
 
 (define (quest-text)
@@ -126,14 +132,15 @@
 
 ;; ---- intent application ------------------------------------------------------
 
-;; Apply stage-entry effects: take items from carried, grant rewards.
+;; Apply stage-entry effects: take items from the bag, grant rewards.
 (define (apply-stage-effects! stage)
   (let ((take (table-ref stage 'take)))
     (when take
-      (let ((n (min *carried* (table-ref take 'count 0))))
-        (set! *carried* (- *carried* n))
+      (let ((n (min (ore-carried) (table-ref take 'count 0))))
+        (bag-remove! 'item/material/ore n)
         (set! *delivered* (+ *delivered* n)))))
-  ;; reward is recorded (no inventory yet, so just acknowledged).
+  ;; The reward is still recorded only: granting items and xp is the reward
+  ;; step of the quest phase, not the bag's.
   (let ((reward (table-ref stage 'reward)))
     (when reward #t)))
 
@@ -159,13 +166,13 @@
                  (else (cons 'ignored ""))))
           ((eq? intent 'give)
            (cond ((eq? *quest-state* 'accepted)
-                  (cond ((<= *carried* 0) (cons 'rejected (quest-reason 'give-empty)))
+                  (cond ((<= (ore-carried) 0) (cons 'rejected (quest-reason 'give-empty)))
                         (else
                           (let* ((obj-id (table-ref stage 'objective))
                                  (need (objective-need obj-id))
                                  (remaining (- need *delivered*))
-                                 (n (min *carried* remaining)))
-                            (set! *carried* (- *carried* n))
+                                 (n (min (ore-carried) remaining)))
+                            (bag-remove! 'item/material/ore n)
                             (set! *delivered* (+ *delivered* n))
                             (if (>= *delivered* need)
                                 (let ((reason (advance-to! (table-ref stage 'on-give-complete))))
@@ -182,9 +189,3 @@
 
 (define (verdict-hint status)
   (table-ref (quest-field 'hints (table)) status ""))
-
-;; ---- pickups and status ------------------------------------------------------
-
-(define (game:take-ore)
-  (set! *carried* (+ *carried* 1))
-  *carried*)

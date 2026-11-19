@@ -43,7 +43,7 @@ Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tr
 
 - WASD / arrow keys to walk; E to talk to an NPC
 - Number keys 1–4 pick a topic (weather, work, village gossip)
-- Walk over stones and ore to pick them up
+- Walk within two tiles of a dropped thing (ore, felled logs) and it flies into the bag; the bag is 30 slots, 999 of a kind per slot, tools one to a slot
 - Blacksmith Lao Wang: accept the quest → collect 3 iron ore → hand them in → done
 - Chen Po and Manager Zhang: free conversation, generated locally and different every time
 - **F1** opens the mechanism HUD: topic → intent, Scheme verdict, line source (LLM / cache / script), model name, and prefill/decode throughput. Set `THEFORD_MECHANISM=0` to hide it.

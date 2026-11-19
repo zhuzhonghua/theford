@@ -21,7 +21,7 @@
 (define (topics-for npc)
   (let ((menu (or (and (eq? npc (quest-giver)) (quest-topic-menu))
                   *default-topics*)))
-    (let ((carried (number->string *carried*)))
+    (let ((carried (number->string (ore-carried))))
       (map (lambda (p)
              (cons (car p) (string-replace-all (cdr p) "{carried}" carried)))
            menu))))
@@ -44,7 +44,7 @@
                        (table-ref (current-stage) 'greet))
                   (table-ref (npc-fallback npc) 'greet)
                   "……")))
-    (list line (quest-text) *carried*)))
+    (list line (quest-text) (ore-carried))))
 
 ;; ---- prompt / fallback ------------------------------------------------------
 
@@ -56,7 +56,7 @@
           (cons "{sys}" *sys-instruction*)
           (cons "{quest}" (quest-text))
           (cons "{item}" (quest-field 'pack-item ""))
-          (cons "{carried}" (number->string *carried*))
+          (cons "{carried}" (number->string (ore-carried)))
           (cons "{status}" (symbol->string (car status)))
           (cons "{reason}" (cdr status))
           (cons "{hint}" (verdict-hint (car status)))
@@ -148,7 +148,7 @@
     (hist-add npc (npc-display npc) (car reply))
     ;; The 4th element drives the "📖 记住了" marker; the 5th is the HUD's
     ;; mechanism trace. Symbols become plain strings through the GDExtension.
-    (list (car reply) (quest-text) *carried* (caddr reply)
+    (list (car reply) (quest-text) (ore-carried) (caddr reply)
           (list (symbol->string t)
                 (symbol->string intent)
                 (symbol->string (car verdict))

@@ -294,4 +294,4 @@ func _reload() -> String:
 	overrides.clear()
 	tick_rate = 1.0
 	await Game.reload_data()
-	return "已热重载，时钟回到 08:00"
+	return "已热重载：时钟、任务与背包都回到开局"

@@ -27,7 +27,7 @@
 ;;   (spawn (type type-id) (at role) (count n))
 ;;   (vfx (fx name))
 ;;   (log (text s))                   — s may be (prop role key)/(param key)
-;;   (open)                           — host chest empties into the actor's bag
+;;   (open)                           — host chest moves what fits into the bag
 ;;
 ;; Effects are returned as plain data for Godot:
 ;;   ("hit" id power hp) ("transform" id type) ("spawn" type at-id)
@@ -337,6 +337,23 @@
     (when (not (string=? text ""))
       (push-effect "log" text))))
 
+;; Move what fits of a chest's contents into the bag; return the rows left
+;; (the chest keeps them until there is room).
+(define (open-into-bag rows)
+  (cond ((null? rows) '())
+        (else
+         (let* ((row (car rows))
+                (type (string->symbol (car row)))
+                (n (cadr row)))
+           (if (bag-add! type n)
+               (begin
+                 (push-effect "log"
+                              (string-append "拿到 "
+                                             (type-name type)
+                                             " x" (number->string n)))
+                 (open-into-bag (cdr rows)))
+               (cons row (open-into-bag (cdr rows))))))))
+
 (define (do-open args roles)
   (let ((host (role-value roles 'host)))
     (when host
@@ -345,17 +362,10 @@
             (push-effect "log" "箱子是空的。")
             (begin
               (push-effect "log" "你打开了箱子。")
-              (for-each
-                (lambda (item)
-                  (let ((type (string->symbol (car item)))
-                        (n (cadr item)))
-                    (bag-add! type n)
-                    (push-effect "log"
-                                 (string-append "拿到 "
-                                                (type-name type)
-                                                " x" (number->string n)))))
-                contents)
-              (entity-set-prop! host 'contents '())))))))
+              (let ((left (open-into-bag contents)))
+                (entity-set-prop! host 'contents left)
+                (when (not (null? left))
+                  (push-effect "log" "背包满了。")))))))))
 
 ;; ---- effect tuples ---------------------------------------------------------
 
