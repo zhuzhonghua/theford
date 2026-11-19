@@ -250,10 +250,12 @@
                    (* h ticks-per-hour)
                    (* m ticks-per-minute))))
     (set! *tick* (max 0 (- total (* (start-hour) ticks-per-hour))))
+    (run-tick-hooks!)
     (game:status)))
 
 (define (game:debug-advance minutes)
   (set! *tick* (max 0 (+ *tick* (* minutes ticks-per-minute))))
+  (run-tick-hooks!)
   (game:status))
 
 ;; "" (or anything unrecognised) clears the override and returns to seeded weather.

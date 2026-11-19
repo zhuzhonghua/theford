@@ -8,6 +8,12 @@ signal finished(ok: bool, summary: String)
 
 const MOVE_ACTIONS := ["move_up", "move_down", "move_left", "move_right"]
 const MAX_LOG_LINES := 7
+## Playback pacing: a replay should read like a person playing. Every step keeps
+## a short beat after it, and `note` holds long enough to read the Chinese text.
+const STEP_PAUSE := 0.45
+const ACTION_PAUSE := 0.9
+const GM_PAUSE := 0.8
+const WALK_PAUSE := 0.4
 
 var main: Node
 var gm: CanvasLayer
@@ -15,6 +21,7 @@ var _script_name := ""
 var _steps: Array = []
 var _active := false
 var _run_id := 0
+var _pace := 1.0
 var _lines: Array[String] = []
 
 var _panel: ColorRect
@@ -73,6 +80,7 @@ func _run(id: int) -> void:
 			return
 		var step: Variant = _steps[i]
 		_title.text = "验收 %s · %d/%d" % [_script_name, i + 1, _steps.size()]
+		print("[acceptance] step %d/%d: %s" % [i + 1, _steps.size(), _step_text(step)])
 		var error: String = await _execute(step, id)
 		if id != _run_id or not _active:
 			return
@@ -82,6 +90,9 @@ func _run(id: int) -> void:
 			_record("FAIL", summary)
 			break
 		_record("OK", _step_text(step))
+		await _pause(STEP_PAUSE)
+		if id != _run_id or not _active:
+			return
 	_active = false
 	_release_movement()
 	_title.text = ("验收通过 · " if ok else "验收失败 · ") + _script_name
@@ -94,14 +105,21 @@ func _execute(step: Variant, id: int) -> String:
 		return "非法步骤（应为非空列表）"
 	var op := str(step[0])
 	match op:
+		"pace":
+			if step.size() < 2:
+				return "pace 缺少倍率"
+			_pace = maxf(0.2, float(step[1]))
+			_current.text = "回放节奏 ×%.2f" % _pace
 		"note":
 			if step.size() < 2:
 				return "note 缺少说明"
-			var hold := 1.5
+			var text := str(step[1])
+			# Read time scales with the text; the script's own value is a floor.
+			var hold := clampf(0.9 + float(text.length()) * 0.12, 1.4, 4.5)
 			if step.size() >= 3:
-				hold = float(step[2])
-			_current.text = str(step[1])
-			await get_tree().create_timer(hold).timeout
+				hold = maxf(hold, float(step[2]))
+			_current.text = text
+			await _pause(hold)
 		"gm":
 			if step.size() < 2:
 				return "gm 缺少指令"
@@ -111,7 +129,7 @@ func _execute(step: Variant, id: int) -> String:
 			if out != "":
 				_current.text += "\n" + out
 			# 让用户看到 GM 指令生效的结果，再往下走。
-			await get_tree().create_timer(0.5).timeout
+			await _pause(GM_PAUSE)
 		"key":
 			if step.size() < 3:
 				return "key 需要 action 与秒数"
@@ -121,8 +139,10 @@ func _execute(step: Variant, id: int) -> String:
 			var seconds := float(step[2])
 			_current.text = "模拟按键：%s（%.2f 秒）" % [action, seconds]
 			Input.action_press(action)
+			# Key hold is gameplay input, not playback tempo: never scale it.
 			await get_tree().create_timer(seconds).timeout
 			Input.action_release(action)
+			await _pause(0.3)
 		"move":
 			if step.size() < 3:
 				return "move 需要 action 与目标地图"
@@ -144,13 +164,13 @@ func _execute(step: Variant, id: int) -> String:
 					return "移动超时，未到地图 " + target
 			Input.action_release(action)
 			# Let the normal portal pass observe the release and rearm.
-			await get_tree().create_timer(0.2).timeout
+			await _pause(0.2)
 		"wait":
 			if step.size() < 2:
 				return "wait 缺少秒数"
 			var seconds := float(step[1])
 			_current.text = "观察画面（%.1f 秒）" % seconds
-			await get_tree().create_timer(seconds).timeout
+			await _pause(seconds)
 		"assert-map":
 			if step.size() < 2:
 				return "assert-map 缺少地图名"
@@ -170,9 +190,179 @@ func _execute(step: Variant, id: int) -> String:
 			if npc == null or not npc.visible:
 				return "NPC 不存在或不可见：" + id_text
 			return _assert_near(npc, str(step[2]), id_text)
+		"goto-map":
+			if step.size() < 3:
+				return "goto-map 需要地图与锚点"
+			var map_id := str(step[1])
+			var at := str(step[2])
+			if map_id == main.current_map_id():
+				# Same map: walk, do not teleport. Cross-map stays a door cut.
+				var gm_bare := at.get_slice(":", 1) if at.contains(":") else at
+				var gm_point: Variant = main.anchor_position(gm_bare)
+				if gm_point == null:
+					return "当前地图没有锚点：" + at
+				_current.text = "走向 %s:%s" % [map_id, at]
+				if not await main.walk_player_to(gm_point, 12.0):
+					return "走不到 %s:%s" % [map_id, at]
+				await _pause(WALK_PAUSE)
+			else:
+				_current.text = "切换地图 → %s:%s" % [map_id, at]
+				await main._switch_map(map_id, at)
+				await _pause(0.5)
+		"place":
+			if step.size() < 3:
+				return "place 需要地图与锚点"
+			var pmap := str(step[1])
+			var pat := str(step[2])
+			var pb := pat.get_slice(":", 1) if pat.contains(":") else pat
+			if pmap != main.current_map_id():
+				_current.text = "把玩家放到 %s:%s" % [pmap, pat]
+				await main._switch_map(pmap, pat)
+			else:
+				var pp: Variant = main.anchor_position(pb)
+				if pp == null:
+					return "当前地图没有锚点：" + pat
+				_current.text = "把玩家放到 %s:%s" % [pmap, pat]
+				main.player.stop_scripted()
+				main.player.position = pp
+			await _pause(0.5)
+		"walk":
+			if step.size() < 2:
+				return "walk 缺少锚点"
+			var anchor := str(step[1])
+			var walk_bare := anchor.get_slice(":", 1) if anchor.contains(":") else anchor
+			var walk_point: Variant = main.anchor_position(walk_bare)
+			if walk_point == null:
+				walk_point = main.portal_position(walk_bare)
+			if walk_point == null:
+				return "当前地图没有锚点或 portal：" + anchor
+			_current.text = "走向 " + anchor
+			if not await main.walk_player_to(walk_point, 12.0):
+				return "走不到 " + anchor
+			await _pause(WALK_PAUSE)
+		"walk-interact":
+			_current.text = "寻找附近的可互动物体"
+			var wi_target: String = main._nearest_interactable(main.player.position, 480.0)
+			if wi_target == "":
+				return "附近没有可互动物体"
+			if not await _approach(wi_target):
+				return "走不到可互动物体：" + wi_target
+			_current.text = "E：与 %s 互动" % wi_target
+			await main._interact_entity(wi_target)
+			await _pause(ACTION_PAUSE)
+		"walk-use":
+			_current.text = "寻找附近能砍的树"
+			var wu_tree: Array = main._nearest_of_types(main.player.position, 480.0, ["fixture/tree"])
+			if wu_tree[0] == null:
+				return "附近没有树"
+			if not await _approach(str(wu_tree[0])):
+				return "走不到树：" + str(wu_tree[0])
+			_current.text = "F：用手持工具砍树"
+			await main._fire_use_action()
+			await _pause(ACTION_PAUSE)
+		"use":
+			_current.text = "F：使用手持工具"
+			var use_tree: Array = main._nearest_of_types(main.player.position, 480.0, ["fixture/tree"])
+			if use_tree[0] == null:
+				return "附近没有树"
+			if main.player.position.distance_to(use_tree[1].position) > 48.0:
+				if not await _approach(str(use_tree[0])):
+					return "走不到树：" + str(use_tree[0])
+			await main._fire_use_action()
+			await _pause(ACTION_PAUSE)
+		"interact":
+			_current.text = "E：与最近的可互动物体互动"
+			var in_target: String = main._nearest_interactable(main.player.position, 480.0)
+			if in_target == "":
+				return "附近没有可互动物体"
+			var in_node: Node2D = main.entity_node(in_target)
+			if in_node != null and main.player.position.distance_to(in_node.position) > 48.0:
+				if not await _approach(in_target):
+					return "走不到可互动物体：" + in_target
+			await main._interact_entity(in_target)
+			await _pause(ACTION_PAUSE)
+		"drain":
+			_current.text = "取回规则引擎排队的延时效果"
+			var drained: Variant = await Game.call_async("game:drain-effects", [])
+			main._apply_effects(drained)
+			await _pause(0.3)
+		"assert-last-entity-type":
+			if step.size() < 2:
+				return "assert-last-entity-type 缺少类型"
+			var want_type := str(step[1])
+			var entry: Variant = await Game.call_async("game:debug-entity", [main.last_used_id])
+			if not (entry is Array) or entry.size() < 1:
+				return "最近实体不存在：" + str(main.last_used_id)
+			_current.text = "断言：最近实体类型 = " + want_type
+			if str(entry[0]) != want_type:
+				return "期望 %s，实际 %s" % [want_type, str(entry[0])]
+		"assert-last-entity-hp":
+			if step.size() < 2:
+				return "assert-last-entity-hp 缺少生命值"
+			var want_hp := int(step[1])
+			var entry_hp: Variant = await Game.call_async("game:debug-entity", [main.last_used_id])
+			if not (entry_hp is Array) or entry_hp.size() < 2:
+				return "最近实体不存在：" + str(main.last_used_id)
+			_current.text = "断言：最近实体 HP = %d" % want_hp
+			if int(entry_hp[1]) != want_hp:
+				return "期望 %d，实际 %d" % [want_hp, int(entry_hp[1])]
+		"assert-bag":
+			if step.size() < 3:
+				return "assert-bag 需要类型与数量"
+			var want_item := str(step[1])
+			var want_n := int(step[2])
+			var bag_view: Variant = await Game.call_async("game:bag", [])
+			var have := 0
+			if bag_view is Array and bag_view.size() >= 1 and bag_view[0] is Array:
+				for row in bag_view[0]:
+					if row is Array and row.size() >= 2 and str(row[0]) == want_item:
+						have = int(row[1])
+			_current.text = "断言：背包 %s x%d" % [want_item, want_n]
+			if have != want_n:
+				return "期望 %s x%d，实际 x%d" % [want_item, want_n, have]
+		"assert-group-count":
+			if step.size() < 3:
+				return "assert-group-count 需要组名与数量"
+			var group := str(step[1])
+			var want_cnt := int(step[2])
+			var have_cnt := get_tree().get_nodes_in_group(group).size()
+			_current.text = "断言：组 %s 数量 = %d" % [group, want_cnt]
+			if have_cnt != want_cnt:
+				return "期望 %d，实际 %d" % [want_cnt, have_cnt]
+		"assert-log":
+			if step.size() < 2:
+				return "assert-log 缺少文本"
+			var needle := str(step[1])
+			_current.text = "断言：消息出现 → " + needle
+			var found := false
+			for line_text in main._log_history:
+				if needle in str(line_text):
+					found = true
+					break
+			if not found:
+				return "消息未出现：" + needle
 		_:
 			return "未知操作：" + op
 	return ""
+
+func _pause(seconds: float) -> void:
+	var wait := seconds * _pace
+	if wait > 0.0:
+		await get_tree().create_timer(wait).timeout
+
+## Walk to an entity until it is within arm's reach. Uses the same grid route
+## villagers take, so a replay shows the player crossing the room first.
+func _approach(eid: String) -> bool:
+	var node: Node2D = main.entity_node(eid)
+	if node == null:
+		return false
+	if main.player.position.distance_to(node.position) <= 20.0:
+		return true
+	var point: Variant = main.approach_point(node.position, 48.0)
+	if point == null:
+		return false
+	_current.text = "走向 %s 旁边" % eid
+	return await main.walk_player_to(point, 10.0)
 
 func _assert_near(node: Node2D, anchor: String, label: String) -> String:
 	var point: Variant = main.anchor_position(anchor)
@@ -210,6 +400,8 @@ func cancel() -> void:
 func _release_movement() -> void:
 	for action in MOVE_ACTIONS:
 		Input.action_release(action)
+	if main != null and main.player != null:
+		main.player.stop_scripted()
 
 func _step_text(step: Variant) -> String:
 	if not (step is Array) or step.is_empty():

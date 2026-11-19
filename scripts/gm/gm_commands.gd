@@ -36,6 +36,8 @@ const HELP := "GM 指令（F8 开关）:
   talk smith                传送到老王身边并打开对话
   reload                    热重载数据（等同 F5）
   load portal               播放 SCM 验收脚本（Esc 中止/关闭 HUD）
+  load fell-tree            验收：开箱拿斧 → 两下砍树 → 树桩 → 再生
+  load read-sign            验收：E 阅读村口木牌
   nl 让老王去酒馆           强制走 LLM 翻译
   clear                     清屏
 

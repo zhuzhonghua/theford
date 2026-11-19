@@ -9,6 +9,7 @@
 [ext_resource type="Texture2D" path="res://assets/na/Actor/Character/NinjaRed/SpriteSheet.png" id="7_qbwy1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="8_w0yqs"]
 [ext_resource type="Texture2D" path="res://assets/na/Ui/Arrow.png" id="9_portal_hint"]
+[ext_resource type="Texture2D" path="res://assets/na/Items/Treasure/BigTreasureChest.png" id="10_chest"]
 
 [node name="World" type="Node2D" unique_id=356429817]
 y_sort_enabled = true
@@ -21,6 +22,15 @@ tile_set = ExtResource("1_2uke2")
 texture_filter = 1
 position = Vector2(72, 78)
 texture = ExtResource("2_2ck20")
+
+[node name="Chest" type="Sprite2D" parent="." groups=["interactable"]]
+position = Vector2(120, 112)
+texture = ExtResource("10_chest")
+hframes = 2
+frame = 0
+metadata/entity_type = "fixture/container/chest"
+metadata/entity_tags = ["wooden", "flammable", "container"]
+metadata/entity_props = [["contents", [["item/tool/axe", 1]]]]
 
 [node name="Smith" type="Sprite2D" parent="." unique_id=1859399169 instance=ExtResource("3_pmvht")]
 position = Vector2(56, 72)

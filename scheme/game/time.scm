@@ -117,7 +117,18 @@
   (set! *rng-state* (world-seed))
   (set! *weather-override* #f))
 
+;; Other modules (rules.scm) register a callback that runs after every tick.
+;; Kept here so time.scm never needs to require the rule engine.
+(define *tick-hooks* '())
+
+(define (add-tick-hook! proc)
+  (set! *tick-hooks* (cons proc *tick-hooks*)))
+
+(define (run-tick-hooks!)
+  (for-each (lambda (proc) (proc)) *tick-hooks*))
+
 (define (game:tick)
   (set! *tick* (+ *tick* 1))
+  (run-tick-hooks!)
   (game:status))
 

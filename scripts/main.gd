@@ -10,6 +10,9 @@ const TILE := 16
 const TICK_SECONDS := 0.1
 const PEOPLE_SECONDS := 1.0
 const NPC_SPEED := 40.0
+const TREE_TEXTURE := "res://assets/na/Backgrounds/Tilesets/TilesetNature.png"
+const TREE_REGION := Rect2(0, 32, 48, 48)
+const LOG_REGION := Rect2(208, 208, 32, 16)
 const NIGHT_COLOR := Color(0.46, 0.52, 0.70)
 const DAY_COLOR := Color(1.0, 0.98, 0.92)
 const WEATHER_NAMES := {
@@ -40,6 +43,7 @@ var mech: MechHud = null
 var gm: Node = null
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
+var _effects_accumulator := 0.0
 var _daylight: CanvasModulate = null
 var _weather_layer: CanvasLayer = null
 var _rain: GPUParticles2D = null
@@ -54,6 +58,13 @@ var _portal_wait_release := false
 var _scene_path_cache := {}  # map id -> "scenes/xxx.tscn" (populated from Scheme)
 var _current_map_id := "village"
 var _current_music := ""
+var _entities := {}         # entity-id string -> Node2D node reference
+var _entity_types := {}     # entity-id string -> type id ("fixture/tree", ...)
+var last_used_id := ""      # entity targeted by the most recent F, for tests
+var _log_history: Array[String] = []
+var _last_log := ""
+var _verb_hint := ""
+var _effects_polling := false
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -79,10 +90,21 @@ func _ready() -> void:
 		_refresh_hud()
 		_start_bgm()
 		Game.send("game:people")
+		Game.send("game:bag")
 		_check_anchors()
+		_maybe_autoplay_acceptance()
 	else:
 		Game.bridge_ready.connect(_on_bridge_ready)
 	_maybe_run_headless_demo()
+
+## Dev hook (GM module only): THEFORD_ACCEPTANCE=<name> auto-plays a script
+## once the Scheme bridge is up. Works headless, so a terminal run exercises
+## the same steps the F8 console would.
+func _maybe_autoplay_acceptance() -> void:
+	var script_name := OS.get_environment("THEFORD_ACCEPTANCE")
+	if script_name == "" or gm == null:
+		return
+	gm.autoplay(script_name)
 
 ## The world is static now, so it is ready immediately. Only the HUD text
 ## depends on the Scheme thread (bridge_ready).
@@ -90,7 +112,9 @@ func _on_bridge_ready(_llm: bool) -> void:
 	_refresh_hud()
 	_start_bgm()
 	Game.send("game:people")
+	Game.send("game:bag")
 	_check_anchors()
+	_maybe_autoplay_acceptance()
 
 ## Optional GM console: the file is the whole debug module (see scripts/gm/).
 func _setup_gm(font: Font) -> void:
@@ -151,6 +175,7 @@ func _setup_world() -> void:
 	_setup_astar()
 	player.main = self
 	_setup_camera()
+	_register_scene_entities()
 
 ## Walkability is authored in the editor:
 ##   * water tiles carry the TileSet custom data flag "blocked"
@@ -218,6 +243,304 @@ func _npc_by_id(id: String) -> Node2D:
 			return npc
 	return null
 
+## ---- entity registry -------------------------------------------------------
+## Godot scans the active scene for things the rule engine should know about
+## (trees, signs, chests, NPCs, ...) and sends a flat list to Scheme via
+## `game:register-entities`. Entity ids are generated here so Scheme never
+## needs to parse Godot node paths — it just uses symbols like
+## "tree:village:0" or "npc:smith". The bridge fires once per scene load
+## (at the end of _setup_world) so reloading doesn't accumulate duplicates.
+
+func _register_scene_entities() -> void:
+	_entities.clear()
+	_entity_types.clear()
+	var rows: Array = []
+	# Trees: Sprite2D nodes in the "obstacle" group. Health comes from the type
+	# data, so the row carries only per-instance tags/props (empty here).
+	var tree_idx: int = 0
+	for node in get_tree().get_nodes_in_group("obstacle"):
+		if node is Sprite2D:
+			var eid := "tree:%s:%d" % [_current_map_id, tree_idx]
+			_entities[eid] = node
+			_entity_types[eid] = "fixture/tree"
+			rows.append([eid, "fixture/tree", [], []])
+			tree_idx += 1
+	# Authored interactables (signs, chests) carry their type and per-instance
+	# props as scene metadata; the rule engine receives them as plain data.
+	var inter_idx: int = 0
+	for node in get_tree().get_nodes_in_group("interactable"):
+		if not (node is Node2D):
+			continue
+		var etype := str(node.get_meta("entity_type", ""))
+		if etype == "":
+			continue
+		var eid := "%s:%s:%d" % [etype.replace("/", "-"), _current_map_id, inter_idx]
+		inter_idx += 1
+		_entities[eid] = node
+		_entity_types[eid] = etype
+		var tags: Array = node.get_meta("entity_tags", [])
+		var props: Array = node.get_meta("entity_props", [])
+		rows.append([eid, etype, tags, props])
+	# NPCs — already known to Scheme via people.scm; add the entity layer
+	# so rules can match "actor/person/villager" as a host type.
+	for npc in get_tree().get_nodes_in_group("npc"):
+		if npc is Node2D and npc.has_method("get") and str(npc.get("npc_id")) != "":
+			var eid := "npc:" + str(npc.get("npc_id"))
+			_entities[eid] = npc
+			_entity_types[eid] = "actor/person/villager"
+			rows.append([eid, "actor/person/villager", ["person"], []])
+	if rows.size() == 0:
+		return
+	# Fire-and-forget: Scheme has its own registry, nothing to absorb.
+	Game.send("game:register-entities", [rows])
+
+## Nearest entity whose registered type is one of `types`, within `max_dist`.
+## Returns [entity-id, node] or [null, null].
+func _nearest_of_types(pos: Vector2, max_dist: float, types: Array) -> Array:
+	var best_id := ""
+	var best: Node2D = null
+	var best_d: float = max_dist
+	for eid in _entities.keys():
+		if not types.has(str(_entity_types.get(eid, ""))):
+			continue
+		var node: Variant = _entities[eid]
+		if not is_instance_valid(node):
+			continue
+		var d: float = pos.distance_to(node.position)
+		if d < best_d:
+			best_d = d
+			best_id = str(eid)
+			best = node
+	if best != null:
+		return [best_id, best]
+	return [null, null]
+
+## Find the nearest entity to `pos` within `max_dist`. Skips entities whose
+## node has been freed. Returns (entity-id, node) or (null, null).
+func _nearest_entity(pos: Vector2, max_dist: float) -> Array:
+	var best_id := ""
+	var best: Node2D = null
+	var best_d: float = max_dist
+	for eid in _entities.keys():
+		var node: Variant = _entities[eid]
+		if not is_instance_valid(node):
+			continue
+		var d: float = pos.distance_to(node.position)
+		if d < best_d:
+			best_d = d
+			best_id = str(eid)
+			best = node
+	if best != null:
+		return [best_id, best]
+	return [null, null]
+
+## Nearest sign/chest in reach, or "".
+func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
+	var hit: Array = _nearest_of_types(pos, max_dist,
+			["fixture/sign", "fixture/container/chest"])
+	return str(hit[0]) if hit[0] != null else ""
+
+## HUD verb hint for whatever is in reach. Recomputed every frame and only
+## repainted when it changes, so walking past a tree/sign updates the line
+## without a snapshot round trip.
+func _update_verb_hint() -> void:
+	var hint := ""
+	if player != null and Game.booted:
+		var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
+		if tree[0] != null:
+			hint = "F 砍树" if str(Game.snapshot.get("held", "")) != "" else "F 需要斧头"
+		else:
+			var inter := _nearest_interactable(player.position, 48.0)
+			if inter != "":
+				var itype := str(_entity_types.get(inter, ""))
+				if itype == "fixture/sign":
+					hint = "E 阅读木牌"
+				elif itype == "fixture/container/chest":
+					hint = "E 打开箱子"
+			else:
+				var npc := _nearest_npc(player.position, 30.0)
+				if npc != null:
+					hint = "E 交谈"
+	if hint != _verb_hint:
+		_verb_hint = hint
+		_refresh_hud()
+
+## F key — use whatever tool the player carries on the nearest tree. Scheme
+## decides whether the bag holds an axe; without one no rule matches and the
+## effect list comes back empty (the "no axe, no effect" check is structural).
+func _fire_use_action() -> void:
+	if player == null:
+		return
+	var hit: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
+	var target_id: String = str(hit[0]) if hit[0] != null else ""
+	if target_id == "":
+		return
+	last_used_id = target_id
+	var effects: Variant = await Game.call_async("game:use", ["player", target_id])
+	_apply_effects(effects)
+
+## E helper: fire impulse/handle on a sign or chest. The rule decides whether
+## that means reading or opening.
+func _interact_entity(target_id: String) -> void:
+	last_used_id = target_id
+	var effects: Variant = await Game.call_async("game:handle", ["player", target_id])
+	_apply_effects(effects)
+
+## Execute a list of effect tuples returned by the rule engine. Each tuple is
+## ("kind" payload...) where kind is one of:
+##   "hit"       entity-id power hp   — impact cue + remaining hp line
+##   "transform" entity-id new-type   — visual swap of the same node
+##   "spawn"     type-str at-id       — new node near `at-id`
+##   "vfx"       entity-id fx-name    — visual effect (placeholder for Phase 5)
+##   "log"       text                 — transient HUD message line
+## Scheme already updated hp/type before returning the list; this only renders.
+func _apply_effects(effects: Variant) -> void:
+	if not (effects is Array) or effects.is_empty():
+		return
+	for eff in effects:
+		if not (eff is Array) or eff.size() < 2:
+			continue
+		var kind: String = str(eff[0])
+		match kind:
+			"hit":
+				_vfx_hit(str(eff[1]))
+				if eff.size() >= 4:
+					_log_line("受到 %d 点伤害，剩余 %d" % [
+							int(eff[2]), int(eff[3])])
+			"transform":
+				_transform_entity(str(eff[1]), str(eff[2]))
+			"spawn":
+				_spawn_entity(str(eff[1]), str(eff[2]))
+			"vfx":
+				_vfx_play(str(eff[1]), str(eff[2]))
+			"log":
+				_log_line(str(eff[1]))
+	# Chest contents / held-tool hints live in Scheme; ask for a fresh view.
+	Game.send("game:bag")
+
+## --- effect helpers ----------------------------------------------------------
+
+func _transform_entity(eid: String, new_type: String) -> void:
+	var ref: Variant = _entities.get(eid, null)
+	if not is_instance_valid(ref) or not (ref is Node2D):
+		return
+	var node: Node2D = ref
+	var cell: Vector2i = _foot_cell(node.position)
+	match new_type:
+		"fixture/stump":
+			# Show the cut-log graphic in place of the canopy, and free the
+			# cell once the trunk no longer blocks movement.
+			var sprite := node as Sprite2D
+			if sprite != null:
+				sprite.region_enabled = true
+				sprite.region_rect = LOG_REGION
+				sprite.centered = false
+				sprite.offset = Vector2(-16, -16)
+				sprite.modulate = Color(0.82, 0.72, 0.60)
+				sprite.z_index = 0
+			_release_cell(node, cell)
+			_entity_types[eid] = "fixture/stump"
+		"fixture/tree":
+			# A stump growing back: restore the canopy and the blocking cell.
+			var sprite := node as Sprite2D
+			if sprite != null:
+				sprite.region_enabled = true
+				sprite.region_rect = TREE_REGION
+				sprite.centered = false
+				sprite.offset = Vector2(-24, -48)
+				sprite.modulate = Color.WHITE
+			_block_cell(node, cell)
+			_entity_types[eid] = "fixture/tree"
+		_:
+			_entity_types[eid] = new_type
+
+func _release_cell(node: Node2D, cell: Vector2i) -> void:
+	blocked.erase(cell)
+	if _astar != null and _astar.is_in_boundsv(cell):
+		_astar.set_point_solid(cell, false)
+	if node.is_in_group("obstacle"):
+		node.remove_from_group("obstacle")
+
+func _block_cell(node: Node2D, cell: Vector2i) -> void:
+	blocked[cell] = true
+	if _astar != null and _astar.is_in_boundsv(cell):
+		_astar.set_point_solid(cell, true)
+	if not node.is_in_group("obstacle"):
+		node.add_to_group("obstacle")
+
+func _spawn_entity(type_str: String, at_id: String) -> void:
+	var at_node: Variant = _entities.get(at_id, null)
+	var pos: Vector2 = at_node.position if is_instance_valid(at_node) \
+			else (player.position if player != null else Vector2.ZERO)
+	if type_str == "item/material/log":
+		# A log is the same cut-wood graphic, drawn smaller at the tree base.
+		var log := Sprite2D.new()
+		log.name = "Log"
+		log.texture = load(TREE_TEXTURE)
+		log.region_enabled = true
+		log.region_rect = LOG_REGION
+		log.centered = false
+		log.offset = Vector2(-16, -16)
+		log.scale = Vector2(0.7, 0.7)
+		log.position = pos + Vector2(randf_range(-10.0, 10.0), randf_range(0.0, 8.0))
+		log.add_to_group("log")
+		if world != null:
+			world.add_child(log)
+		else:
+			add_child(log)
+		return
+	var scene := _spawn_scene_for_type(type_str)
+	if scene == null:
+		_log_line("[TODO] spawn: no scene for " + type_str)
+		return
+	var new_node: Node2D = scene.instantiate()
+	new_node.position = pos
+	if world != null:
+		world.add_child(new_node)
+	else:
+		add_child(new_node)
+
+func _spawn_scene_for_type(type_str: String) -> PackedScene:
+	match type_str:
+		"item/material/ore":
+			return load("res://scenes/ore.tscn")
+		_:
+			return null
+
+func _vfx_hit(eid: String) -> void:
+	var ref: Variant = _entities.get(eid, null)
+	if not is_instance_valid(ref) or not (ref is Node2D):
+		return
+	var node: Node2D = ref
+	# Tiny horizontal shake as impact cue — good enough for Phase 5.
+	var orig: Vector2 = node.position
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(node, "position:x", orig.x + 4.0, 0.05) \
+			.set_trans(Tween.TRANS_QUAD)
+	tween.tween_property(node, "position:x", orig.x - 4.0, 0.05) \
+			.set_trans(Tween.TRANS_QUAD)
+	tween.tween_property(node, "position:x", orig.x, 0.05)
+
+func _vfx_play(eid: String, fx_name: String) -> void:
+	# Phase 5: visual effects are placeholders. Print so the log trace shows
+	# them; a particle pass lands later.
+	print("[vfx] %s on %s" % [fx_name, eid])
+
+func _log_line(text: String) -> void:
+	if text == "":
+		return
+	_last_log = text
+	_log_history.append(text)
+	while _log_history.size() > 20:
+		_log_history.pop_front()
+	Game.snapshot_changed.emit()
+	# Clear after a few seconds so the hint line returns.
+	get_tree().create_timer(5.0).timeout.connect(func():
+			if _last_log == text:
+				_last_log = ""
+				Game.snapshot_changed.emit())
+
 ## Current "map:anchor" for an NPC straight from the people snapshot, or "".
 func _sched_at(id: String) -> String:
 	for row in Game.snapshot.get("people", []):
@@ -245,6 +568,59 @@ func current_map_id() -> String:
 func map_transitioning() -> bool:
 	return _portal_traveling
 
+func entity_node(id: String) -> Node2D:
+	var ref: Variant = _entities.get(id, null)
+	return ref if ref is Node2D else null
+
+func portal_position(id: String) -> Variant:
+	return _portals.get(id, null)
+
+## A cell centre from which the player can reach `target` (an entity's origin):
+## the target cell when walkable, otherwise the nearest walkable cell within
+## `radius`. Returns null when nothing in reach is walkable.
+func approach_point(target: Vector2, radius := 48.0) -> Variant:
+	var base := Vector2i(floori(target.x / TILE), floori(target.y / TILE))
+	var offsets: Array[Vector2i] = [Vector2i(0, 0), Vector2i(0, 1), Vector2i(-1, 0),
+			Vector2i(1, 0), Vector2i(0, -1)]
+	for r in range(2, 4):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if absi(dx) != r and absi(dy) != r:
+					continue
+				offsets.append(Vector2i(dx, dy))
+	for off in offsets:
+		var cell: Vector2i = base + off
+		if not _astar.is_in_boundsv(cell) or _astar.is_point_solid(cell):
+			continue
+		if _is_portal_cell(cell):
+			continue
+		var point := _cell_center(cell)
+		if point.distance_to(target) <= radius:
+			return point
+	return null
+
+func _is_portal_cell(cell: Vector2i) -> bool:
+	for pid in _portals.keys():
+		var p: Vector2 = _portals[pid]
+		if Vector2i(floori(p.x / TILE), floori(p.y / TILE)) == cell:
+			return true
+	return false
+
+## Walk the player along the grid route villagers use. Acceptance/demo only:
+## the caller awaits this, so steps stay visually paced instead of teleporting.
+func walk_player_to(goal: Vector2, timeout := 10.0) -> bool:
+	if player == null:
+		return false
+	if player.position.distance_to(goal) <= 1.5:
+		return true
+	var path := _path_between(goal, player.position, "", true)
+	if path.is_empty():
+		return false
+	for waypoint in path:
+		if not await player.walk_to(waypoint, timeout):
+			return false
+	return player.position.distance_to(goal) <= 2.0
+
 func _cell_center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * TILE + TILE * 0.5, cell.y * TILE + TILE * 0.5)
 
@@ -255,7 +631,13 @@ func _path_to_anchor(at: String, from_pos: Vector2, self_id: String = "") -> Pac
 	var anchor_name := at.get_slice(":", 1) if at.contains(":") else at
 	if not _anchors.has(anchor_name):
 		return PackedVector2Array()
-	var goal: Vector2 = _anchors[anchor_name]
+	return _path_between(_anchors[anchor_name], from_pos, self_id)
+
+## Cell-centre waypoints from `from_pos` to `goal`, in world pixels.
+## Other villagers' cells are temporarily solid so routes do not start by
+## walking straight through someone; they are restored right after the query.
+func _path_between(goal: Vector2, from_pos: Vector2, self_id: String = "",
+		avoid_portals := false) -> PackedVector2Array:
 	var from_cell := Vector2i(floori(from_pos.x / TILE), floori(from_pos.y / TILE))
 	var goal_cell := Vector2i(floori(goal.x / TILE), floori(goal.y / TILE))
 	if not _astar.is_in_boundsv(from_cell) or _astar.is_point_solid(from_cell):
@@ -276,6 +658,17 @@ func _path_to_anchor(at: String, from_pos: Vector2, self_id: String = "") -> Pac
 		# Someone is already standing there; still allow arriving next to them.
 		_astar.set_point_solid(goal_cell, false)
 		reserved.erase(goal_cell)
+	# Scripted walking must not fall through a door on the way to something
+	# behind it: reserve portal cells so the route steps around them.
+	if avoid_portals:
+		for pid in _portals.keys():
+			var portal_pos: Vector2 = _portals[pid]
+			var pcell := Vector2i(floori(portal_pos.x / TILE), floori(portal_pos.y / TILE))
+			if pcell == from_cell or pcell == goal_cell:
+				continue
+			if _astar.is_in_boundsv(pcell) and not _astar.is_point_solid(pcell):
+				_astar.set_point_solid(pcell, true)
+				reserved.append(pcell)
 	var cells := _astar.get_id_path(from_cell, goal_cell)
 	for cell in reserved:
 		_astar.set_point_solid(cell, false)
@@ -469,19 +862,43 @@ func _refresh_hud() -> void:
 		return
 	var weather := str(Game.snapshot.get("weather", "sun"))
 	var hint := ""
-	if not (mech != null and mech.is_showing()):
-		hint = "F1 机制   F5 热重载" + ("   F8 GM 指令" if gm != null else "")
-	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n铁矿石背包 x%d   %s\n%s" % [
+	if _last_log != "":
+		hint = _last_log
+	elif _verb_hint != "":
+		hint = _verb_hint
+	elif not (mech != null and mech.is_showing()):
+		hint = "E 互动 / 开箱 / 读牌   F 砍树   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
 			int(Game.snapshot.get("minute", 0)),
 			str(WEATHER_NAMES.get(weather, weather)),
 			str(Game.snapshot.get("quest_text", "")),
 			_activity_line(),
-			int(Game.snapshot.get("carried", 0)),
+			_bag_line(),
 			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
 			hint]
 	_refresh_weather()
+
+## Bag readout: ore count plus any carried item stacks. The held tool comes from
+## Scheme's bag view, not from a GDScript inventory copy.
+func _bag_line() -> String:
+	var parts: PackedStringArray = []
+	parts.append("铁矿石 x%d" % int(Game.snapshot.get("carried", 0)))
+	var held := str(Game.snapshot.get("held", ""))
+	var held_name := ""
+	for row in Game.snapshot.get("bag", []):
+		if not (row is Array and row.size() >= 2):
+			continue
+		var type_id := str(row[0])
+		var display := str(row[2]) if row.size() >= 3 else type_id
+		parts.append("%s x%d" % [display, int(row[1])])
+		if type_id == held:
+			held_name = display
+	var line := "背包：" + "，".join(parts)
+	if held_name != "":
+		line += "   手持：" + held_name
+	return line
 
 ## Compact schedule readout: "老王：打铁   陈婆：晒药   张掌柜：看店".
 func _activity_line() -> String:
@@ -619,10 +1036,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			Game.reload_data()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_F and not dialog_ui.is_open:
+			_fire_use_action()
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("interact") and not dialog_ui.is_open:
-		var npc := _nearest_npc(player.position, 30.0)
-		if npc != null:
-			dialog_ui.open_npc(npc)
+		# Signs and chests take the active verb; villagers take dialogue.
+		var target_id := _nearest_interactable(player.position, 48.0)
+		if target_id != "":
+			_interact_entity(target_id)
+		else:
+			var npc := _nearest_npc(player.position, 30.0)
+			if npc != null:
+				dialog_ui.open_npc(npc)
+		get_viewport().set_input_as_handled()
 
 func _exit_tree() -> void:
 	# Release the grid explicitly: it is the one RefCounted the scene owns.
@@ -641,9 +1068,17 @@ func _process(delta: float) -> void:
 		while _people_accumulator >= PEOPLE_SECONDS:
 			_people_accumulator -= PEOPLE_SECONDS
 			Game.send("game:people")
+	# Timed rule effects (a stump growing back) are pulled once per real second,
+	# even while the clock is paused: a GM time jump queues them immediately.
+	if Game.booted and Game.vm_error == "":
+		_effects_accumulator += delta
+		while _effects_accumulator >= PEOPLE_SECONDS:
+			_effects_accumulator -= PEOPLE_SECONDS
+			_poll_effects()
 	_apply_people(Game.snapshot.get("people", []))
 	_move_npcs(delta)
-	if player != null and not _portal_traveling:
+	_update_verb_hint()
+	if player != null and not _portal_traveling and not player.scripted:
 		if _portal_wait_release:
 			if not _movement_held():
 				_portal_wait_release = false
@@ -663,6 +1098,16 @@ func _process(delta: float) -> void:
 			ore.queue_free()
 			# Fire-and-forget; the HUD updates when the reply lands.
 			Game.send("game:take-ore")
+
+## Pull effects queued by Scheme's tick hook (a stump growing back). Runs at
+## the same cadence as the people refresh, not every frame.
+func _poll_effects() -> void:
+	if _effects_polling or not Game.booted:
+		return
+	_effects_polling = true
+	var effects: Variant = await Game.call_async("game:drain-effects")
+	_effects_polling = false
+	_apply_effects(effects)
 
 func _movement_held() -> bool:
 	return Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right") \

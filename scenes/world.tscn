@@ -9,6 +9,7 @@
 [ext_resource type="Texture2D" path="res://assets/na/Actor/Character/Villager2/SpriteSheet.png" id="10_oo54l"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="11_kpybi"]
 [ext_resource type="Texture2D" path="res://assets/na/Ui/Arrow.png" id="12_portal_hint"]
+[ext_resource type="Texture2D" path="res://assets/na/Backgrounds/Tilesets/TilesetElement.png" id="13_sign"]
 
 [node name="World" type="Node2D" unique_id=1932246936]
 y_sort_enabled = true
@@ -2351,6 +2352,17 @@ display_name = "张掌柜"
 
 [node name="Player" type="Sprite2D" parent="." unique_id=1685146 instance=ExtResource("11_kpybi")]
 position = Vector2(392, 280)
+
+[node name="Sign" type="Sprite2D" parent="." groups=["interactable"]]
+position = Vector2(344, 240)
+texture = ExtResource("13_sign")
+centered = false
+offset = Vector2(-24, -20)
+region_enabled = true
+region_rect = Rect2(176, 16, 48, 20)
+metadata/entity_type = "fixture/sign"
+metadata/entity_tags = ["wooden", "readable"]
+metadata/entity_props = [["text", "村口木牌：往北是铁匠铺，河边滩上有矿石。字迹被雨水洗得发白。"]]
 
 [node name="Anchors" type="Node2D" parent="."]
 

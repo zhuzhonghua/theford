@@ -1,0 +1,47 @@
+;;; Phase 5 验收：从河滩走到铁匠铺拿斧头，再回村砍树。
+;;; GM 中输入：load fell-tree
+;;;
+;;; 回放按“人玩”的节奏：同类地图内用 walk 走位（A* 逐格 + 走路帧），
+;;; 只有跨图进门是硬切；E/F 会先走到目标旁边再按键。
+;;; 脚本不还原场景，跑完后玩家可以继续玩（被砍的树已经变成树桩，稍后会自己长回来）。
+
+(define (acceptance:steps)
+  (list
+    (list "note" "Phase 5：脚本先把玩家放到河滩起点，再走回铁匠铺开箱拿斧头、回村砍树" "2.8")
+    (list "gm" "speed 0")
+    (list "place" "village" "village:riverbank")
+    (list "assert-map" "village")
+    (list "note" "沿村道往北走，注意看走路帧和脚下地形" "1.8")
+    (list "walk" "smithy-door")
+    (list "note" "门口就在正上方，推门进铁匠铺（切图是过门硬切）" "1.4")
+    (list "goto-map" "smithy" "smithy:door")
+    (list "assert-map" "smithy")
+    (list "wait" "0.4")
+    (list "note" "铺子里走到箱子旁，按 E 开箱" "1.8")
+    (list "walk-interact")
+    (list "assert-bag" "item/tool/axe" "1")
+    (list "assert-log" "拿到")
+    (list "note" "拿着斧头出屋，回村口" "1.4")
+    (list "goto-map" "village" "village:smithy-door")
+    (list "assert-map" "village")
+    (list "wait" "0.4")
+    (list "note" "走到门口上方那棵树旁，第一斧" "1.8")
+    (list "walk-use")
+    (list "assert-last-entity-type" "fixture/tree")
+    (list "assert-last-entity-hp" "3")
+    (list "note" "树还剩 3 点生命，等叶子落完再砍第二斧" "1.8")
+    (list "wait" "0.6")
+    (list "note" "第二斧：树倒下，留下树桩和两根木头" "2.0")
+    (list "use")
+    (list "wait" "0.8")
+    (list "assert-last-entity-type" "fixture/stump")
+    (list "assert-last-entity-hp" "0")
+    (list "assert-group-count" "log" "2")
+    (list "assert-log" "Timber!")
+    (list "note" "快进 960 游戏分钟：看树桩慢慢长回一棵树" "2.2")
+    (list "gm" "time +960")
+    (list "drain")
+    (list "assert-last-entity-type" "fixture/tree")
+    (list "assert-last-entity-hp" "6")
+    (list "gm" "speed 1")
+    (list "note" "验收完成：走位、开箱、砍伐、掉落与再生都通过" "2.4")))

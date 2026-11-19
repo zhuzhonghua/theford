@@ -112,3 +112,23 @@
 (define (take-n l k)
   (cond ((or (<= k 0) (null? l)) '())
         (else (cons (car l) (take-n (cdr l) (- k 1))))))
+
+;; ---- small helpers dummyscheme does not provide -----------------------------
+;; init.scm has every? but no any?, and no filter/sort.
+
+(define (any? pred lst)
+  (and (pair? lst)
+       (or (pred (car lst))
+           (any? pred (cdr lst)))))
+
+(define (string-prefix? prefix str)
+  (let ((lp (string-length prefix))
+        (ls (string-length str)))
+    (and (<= lp ls)
+         (string=? (substring str 0 lp) prefix))))
+
+;; Remove every pair whose key matches; cmp is eq?, eqv? or equal?.
+(define (alist-delete key alist cmp)
+  (cond ((null? alist) '())
+        ((cmp (caar alist) key) (alist-delete key (cdr alist) cmp))
+        (else (cons (car alist) (alist-delete key (cdr alist) cmp)))))

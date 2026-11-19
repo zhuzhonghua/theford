@@ -62,6 +62,24 @@
       (name = "Slime Gel")
       (tags = '("gelatinous"))
       (sprite = "item:gel"))
+    (fixture/tree
+      (name = "树")
+      (tags = '("plant" "tree" "flammable" "wooden" "solid"))
+      (solid = #t)
+      (props = (table
+                 (material = "wood")
+                 (maxHp = 6)
+                 (hp = 6))))
+    (fixture/stump
+      (name = "树桩")
+      (tags = '("wooden" "flammable"))
+      (solid = #f)
+      ;; stage: what a transformed thing becomes again, and after how many
+      ;; ticks (9600 = 16 game hours, matching the reference terrain data).
+      (stage = (table
+                  (into = 'fixture/tree)
+                  (lasts = 9600)
+                  (fx = "leaves"))))
     (fixture/container/chest
       (name = "chest")
       (tags = '("wooden" "flammable"))
@@ -94,6 +112,40 @@
 ;; (type-get id) — the table for a registered type, or #f. `id` is a symbol.
 (define (type-get id)
   (table-ref *types* id))
+
+;; Accessors with structural defaults: callers may use a type id that is not
+;; registered (the rule engine treats an unregistered id as a leaf type).
+(define (type-field id key default)
+  (let ((t (type-get id)))
+    (if t (table-ref t key default) default)))
+
+(define (type-name id)
+  (type-field id 'name (symbol->string id)))
+
+(define (type-tags id)
+  (type-field id 'tags '()))
+
+(define (type-has-tag? id tag)
+  (if (member tag (type-tags id)) #t #f))
+
+;; Default props as a hash table (or #f).
+(define (type-props id)
+  (type-field id 'props #f))
+
+(define (type-prop id key default)
+  (let ((p (type-props id)))
+    (if p (table-ref p key default) default)))
+
+;; A stage table (into/lasts/fx) for things that regrow after a transform.
+(define (type-stage id)
+  (type-field id 'stage #f))
+
+;; Health of a freshly registered thing, from its type's props.
+(define (type-hp id)
+  (let ((p (type-props id)))
+    (if p
+        (or (table-ref p 'hp #f) (table-ref p 'maxHp 0))
+        0)))
 
 ;; (is-a type ancestor) — true when `ancestor` is `type` itself or a strict
 ;; path prefix (i.e. an ancestor node). Both ids are symbols.

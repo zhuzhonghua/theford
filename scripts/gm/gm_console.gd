@@ -44,6 +44,19 @@ func execute(line: String) -> String:
 func is_gm_command(word: String) -> bool:
 	return _commands != null and _commands.is_gm_command(word)
 
+## Dev hook: THEFORD_ACCEPTANCE=<name> plays a script once the bridge is up.
+## Headless-friendly; prints the summary so a terminal run carries the result.
+func autoplay(script_name: String) -> void:
+	var error: String = await _acceptance.load_script(script_name)
+	if error != "":
+		print("[acceptance] load failed: " + error)
+		return
+	_acceptance.finished.connect(func(ok: bool, summary: String) -> void:
+		print("[acceptance] %s: %s" % ["OK" if ok else "FAIL", summary])
+		if OS.get_environment("THEFORD_ACCEPTANCE_QUIT") == "1":
+			get_tree().quit(0 if ok else 1))
+	_acceptance.start()
+
 func _build(font: Font) -> void:
 	_panel = ColorRect.new()
 	_panel.color = Color(0.04, 0.05, 0.07, 0.93)

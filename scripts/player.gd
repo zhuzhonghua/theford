@@ -10,6 +10,11 @@ const SPEED := 70.0
 
 var main: Node2D
 var facing := "down"
+## Acceptance/demo walking drives the sprite through walk_to(). While true,
+## manual input is ignored so a scripted walk cannot fight the keyboard.
+var scripted := false
+var _scripted_target := Vector2.ZERO
+var _scripted_dir := Vector2.ZERO
 
 # body half-extents for the collision test box
 const HW := 5.0
@@ -34,6 +39,9 @@ func _physics_process(delta: float) -> void:
 	if focus is LineEdit or focus is TextEdit:
 		_animate(delta, false)
 		return
+	if scripted:
+		_step_scripted(delta)
+		return
 	var dir := Vector2.ZERO
 	if Input.is_action_pressed("move_left"):
 		dir.x -= 1
@@ -53,6 +61,64 @@ func _physics_process(delta: float) -> void:
 		dir = dir.normalized()
 		_move_with_collision(dir * SPEED * delta)
 	_animate(delta, moving)
+
+## Scripted walking for acceptance/demo playback: same 4-direction movement,
+## collision and walk frames as the keyboard path, so a replay reads as a
+## person playing instead of a teleport. Returns true once within ~1.5 px.
+func walk_to(point: Vector2, timeout := 8.0) -> bool:
+	scripted = true
+	_scripted_target = point
+	var elapsed := 0.0
+	var stuck := 0.0
+	var last := position
+	while position.distance_to(point) > 1.5:
+		await get_tree().physics_frame
+		elapsed += get_physics_process_delta_time()
+		if position.distance_to(last) < 0.05:
+			stuck += get_physics_process_delta_time()
+		else:
+			stuck = 0.0
+			last = position
+		if elapsed >= timeout or stuck >= 0.5:
+			break
+	_scripted_dir = Vector2.ZERO
+	scripted = false
+	_animate(0.0, false)
+	return position.distance_to(point) <= 1.5
+
+func stop_scripted() -> void:
+	scripted = false
+	_scripted_target = position
+	_scripted_dir = Vector2.ZERO
+
+func _step_scripted(delta: float) -> void:
+	var remaining := _scripted_target - position
+	if remaining.length() <= 1.5:
+		_scripted_dir = Vector2.ZERO
+		_animate(delta, false)
+		return
+	if absf(remaining.x) >= absf(remaining.y):
+		_scripted_dir = Vector2(signf(remaining.x), 0.0)
+	else:
+		_scripted_dir = Vector2(0.0, signf(remaining.y))
+	if _scripted_dir.x < 0.0:
+		facing = "left"
+	elif _scripted_dir.x > 0.0:
+		facing = "right"
+	elif _scripted_dir.y < 0.0:
+		facing = "up"
+	else:
+		facing = "down"
+	# Clamp the step to the waypoint so scripted walking never overshoots and
+	# oscillates around a target the keyboard path would simply walk onto.
+	var step := SPEED * delta
+	var disp := Vector2.ZERO
+	if _scripted_dir.x != 0.0:
+		disp.x = signf(_scripted_dir.x) * minf(step, absf(remaining.x))
+	if _scripted_dir.y != 0.0:
+		disp.y = signf(_scripted_dir.y) * minf(step, absf(remaining.y))
+	_move_with_collision(disp)
+	_animate(delta, true)
 
 func _move_with_collision(disp: Vector2) -> void:
 	# Move axis by axis, testing the leading edge of the feet/body box.

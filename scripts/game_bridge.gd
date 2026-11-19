@@ -37,6 +37,8 @@ var snapshot := {
 	"minute": 0,
 	"weather": "sun",
 	"people": [],       # [[id, "map:anchor", activity], ...]
+	"bag": [],          # [[type, count, display-name], ...]
+	"held": "",         # tool type-string in hand, or ""
 	"model": "",
 	"llm_version": "",
 	"last_turn": {},
@@ -206,6 +208,11 @@ func _absorb(fn: String, result: Variant) -> void:
 		"game:people":
 			if result is Array:
 				_write_people(result)
+		"game:bag":
+			if result is Array and result.size() >= 1:
+				snapshot["bag"] = result[0] if result[0] is Array else []
+				snapshot["held"] = str(result[1]) if result.size() >= 2 else ""
+				snapshot_changed.emit()
 
 ## NPC schedule rows: [id, anchor, activity]. Repaint only on a real change so
 ## the per-second refresh does not spam the HUD.

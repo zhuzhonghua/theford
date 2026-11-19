@@ -24,6 +24,11 @@
 ;;   game:people                (here) id + current anchor + activity per npc
 ;;   game:gm-plan text          (gm.scm) LLM turns free text into one GM command
 ;;   game:reload                (here) re-read data files, reset state
+;;   game:register-entities     (entities.scm) replace the per-map entity registry
+;;   game:use actor target      (rules.scm) F verb: tool on target, returns effects
+;;   game:handle actor target   (rules.scm) E verb on a sign/chest, returns effects
+;;   game:bag                   (inventory.scm) bag rows + held tool
+;;   game:drain-effects         (rules.scm) effects queued by tick hooks
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
 ;; the canned reply table, and the quest still completes end to end.
@@ -36,7 +41,11 @@
 ;;   data/dialogue.scm shared talk text: topic labels, utterances, prompt template
 ;;   data/quests.scm  quest definitions: objectives + stages (smith-ore chain)
 ;;   data/people.scm  roster: names, personas, canned lines, schedules (see npcs.scm)
+;;   data/rules.scm   rule table: host selector + condition tree + effect list
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
+;;   entities.scm runtime registry: id -> (type hp tags props); transforms keep props
+;;   inventory.scm type->count bag, held-tool lookup for the F verb
+;;   rules.scm  event dispatch: specificity, condition tree, effect ops, tick stages
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   gm.scm     optional debug module: deterministic clock/weather, NL->command
 ;;   npcs.scm   npc lookups (display/persona/lines/schedule) over data/people.scm
@@ -59,6 +68,9 @@
 (require "game.npcs")
 (require "game.quest")
 (require "game.talk")
+(require "game.entities")
+(require "game.rules")
+(require "game.data.rules")
 ; Optional debug module (see gm.scm). Remove this line and the file to ship
 ; without the GM console; nothing else references it.
 (require "game.gm")
@@ -94,7 +106,8 @@
     "game.data.catalog"
     "game.data.dialogue"
     "game.data.quests"
-    "game.data.people"))
+    "game.data.people"
+    "game.data.rules"))
 
 (define (reload-modules! mods)
   (when (not (null? mods))
@@ -109,6 +122,8 @@
   (let ((saved-map *current-map*))
     (reload-modules! *data-modules*)
     (set! *current-map* saved-map))
+  (rebuild-rules!)
+  (reset-effects!)
   (report-schedule-problems)
   (reset-quest!)
   (reset-talk!)
