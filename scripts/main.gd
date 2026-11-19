@@ -239,6 +239,12 @@ func anchor_names() -> Array:
 func anchor_position(name: String) -> Variant:
 	return _anchors.get(name, null)
 
+func current_map_id() -> String:
+	return _current_map_id
+
+func map_transitioning() -> bool:
+	return _portal_traveling
+
 func _cell_center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * TILE + TILE * 0.5, cell.y * TILE + TILE * 0.5)
 

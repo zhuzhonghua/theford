@@ -7,12 +7,15 @@ extends CanvasLayer
 ## file is only the panel and input box.
 
 const GmCommands := preload("res://scripts/gm/gm_commands.gd")
+const AcceptanceRunner := preload("res://scripts/gm/acceptance_runner.gd")
 const MOVE_ACTIONS := ["move_up", "move_down", "move_left", "move_right"]
 
 var main: Node
 var is_open := false
 
 var _commands: GmCommands
+var _acceptance: CanvasLayer
+var _loading := false
 var _panel: ColorRect
 var _log: RichTextLabel
 var _edit: LineEdit
@@ -21,6 +24,10 @@ func setup(main_node: Node, font: Font) -> void:
 	main = main_node
 	_commands = GmCommands.new(main)
 	layer = 40
+	_acceptance = AcceptanceRunner.new()
+	add_child(_acceptance)
+	_acceptance.setup(main_node, self, font)
+	_acceptance.finished.connect(_on_acceptance_finished)
 	_build(font)
 
 ## Time multiplier read by main.gd every frame: 1 normal, 0 paused, N = Nx.
@@ -124,7 +131,14 @@ func _submit(text: String) -> void:
 		_log.text = ""
 		return
 	_append("> " + cmd)
-	if not _commands.is_gm_command(cmd.split(" ", false)[0].to_lower()):
+	var verb := cmd.split(" ", false)[0].to_lower()
+	if verb == "load":
+		await _load_acceptance(cmd)
+		return
+	if _loading:
+		_append("验收脚本加载中，请稍候…")
+		return
+	if not _commands.is_gm_command(verb):
 		_append("（LLM 解析中…）")
 	var out: String = await _commands.execute(cmd)
 	if out != "":
@@ -132,6 +146,37 @@ func _submit(text: String) -> void:
 	# Keep the caret in the box after Enter, including after an LLM round-trip.
 	_edit.grab_focus()
 	_edit.caret_column = _edit.text.length()
+
+func _load_acceptance(line: String) -> void:
+	if _loading:
+		_append("验收脚本加载中，请稍候…")
+		return
+	var args := line.split(" ", false)
+	if args.size() != 2:
+		_append("用法：load <脚本名>，例如 load portal")
+		return
+	_loading = true
+	_edit.editable = false
+	_append("正在加载验收脚本 %s…" % args[1])
+	var error: String = await _acceptance.load_script(args[1])
+	_loading = false
+	_edit.editable = true
+	if error != "":
+		_append(error)
+		_edit.grab_focus()
+		return
+	_append("已加载 %s，开始自动验收。" % args[1])
+	if is_open:
+		toggle()
+	_acceptance.start()
+
+func _on_acceptance_finished(ok: bool, summary: String) -> void:
+	if ok:
+		_append("验收通过：%s" % summary)
+	elif summary == "用户中止":
+		_append("验收已中止，已保留当前现场。")
+	else:
+		_append("验收失败：%s" % summary)
 
 func _append(line: String) -> void:
 	_log.add_text(line + "\n")

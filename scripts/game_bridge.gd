@@ -118,7 +118,10 @@ func _worker_main() -> void:
 		for req in batch:
 			var result: Variant = null
 			if err == "":
-				result = vm.call_fn(req["fn"], req["args"])
+				if req.has("load_path"):
+					result = vm.load_file(str(req["load_path"]))
+				else:
+					result = vm.call_fn(req["fn"], req["args"])
 			_mutex.lock()
 			_outbound.append({
 				"kind": "reply",
@@ -272,6 +275,24 @@ func send(fn: String, args: Array = [], keep_reply: bool = false) -> int:
 ## Queue a call and await its result without blocking any thread.
 func call_async(fn: String, args: Array = []) -> Variant:
 	var ticket := send(fn, args, true)
+	while not _replies.has(ticket):
+		await rpc_replied
+	var result: Variant = _replies.get(ticket)
+	_replies.erase(ticket)
+	return result
+
+## Load an acceptance script on the VM's worker thread. The caller resolves the
+## restricted res:// path here on the main thread; the VM only sees a filename.
+func load_async(path: String) -> Variant:
+	var ticket := _next_ticket
+	_next_ticket += 1
+	if not _running:
+		return "逻辑线程未运行"
+	_mutex.lock()
+	_inbound.append({"ticket": ticket, "fn": "acceptance:load", "args": [],
+			"load_path": path, "keep_reply": true})
+	_mutex.unlock()
+	_sem.post()
 	while not _replies.has(ticket):
 		await rpc_replied
 	var result: Variant = _replies.get(ticket)
