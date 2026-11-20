@@ -131,4 +131,8 @@
   ;; A hot reload is "boot again": the bag is run-time state, so the player
   ;; starts empty instead of keeping items from the previous data set.
   (bag-empty!)
+  ;; Entities are run-time state too. A stump (or an emptied chest) from the
+  ;; previous session must not survive: Godot re-registers the authored scene
+  ;; right after this call, repopulating the registry with starting values.
+  (reset-entities!)
   (game:status))

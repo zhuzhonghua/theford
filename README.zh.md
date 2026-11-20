@@ -45,12 +45,14 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - WASD/方向键走路，E 与 NPC 对话
 - 数字键 1-4 选话题；天气、活计、村子的事按话题问
 - 走到掉落物（矿石、砍下的原木）两格内自动吸进背包；背包 30 格、每格同种最多 999，工具一件一槽
+- **I** 打开背包面板：三行十格，显示物品图标与数量，手持工具描金边；拾取时面板即时刷新
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
 - **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
   模型名与 prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
 - **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
-  `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；输入 `help` 看全部指令
+  `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；
+  `bag` 开关背包面板、`give ore 3` 塞物品、`load inventory-panel` 回放背包验收；输入 `help` 看全部指令
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
   生成受 grammar 约束，模型只能输出合法指令

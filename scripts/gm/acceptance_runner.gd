@@ -306,6 +306,34 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：最近实体 HP = %d" % want_hp
 			if int(entry_hp[1]) != want_hp:
 				return "期望 %d，实际 %d" % [want_hp, int(entry_hp[1])]
+		"assert-scene-entity":
+			# Godot's registry + sprite state, not Scheme's: catches a stump that
+			# survived a reload after Scheme already reports a healthy tree.
+			if step.size() < 2:
+				return "assert-scene-entity 缺少类型"
+			var want_scene := str(step[1])
+			_current.text = "断言：场景实体类型 = " + want_scene
+			var have_scene: String = main.entity_scene_type(main.last_used_id)
+			if have_scene != want_scene:
+				return "期望 %s，实际 %s" % [want_scene, have_scene]
+			if want_scene == "fixture/tree" and not main.entity_visual_is_tree(main.last_used_id):
+				return "场景里还是树桩（精灵图/缩放未恢复）"
+		"assert-near-entity":
+			if step.size() < 2:
+				return "assert-near-entity 缺少实体 id"
+			var near_id := str(step[1])
+			if near_id == "last":
+				near_id = main.last_used_id
+			var near_node: Node2D = main.entity_node(near_id)
+			if near_node == null:
+				return "场景里没有实体：" + near_id
+			var near_limit := 48.0
+			if step.size() >= 3:
+				near_limit = float(step[2])
+			_current.text = "断言：玩家仍在 %s 旁" % near_id
+			var near_d: float = main.player.position.distance_to(near_node.position)
+			if near_d > near_limit:
+				return "距 %s 为 %.1f px（上限 %.1f）" % [near_id, near_d, near_limit]
 		"assert-bag":
 			if step.size() < 3:
 				return "assert-bag 需要类型与数量"
@@ -331,6 +359,74 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：背包占用 %d 格" % want_slots
 			if used_slots != want_slots:
 				return "期望 %d 格，实际 %d 格" % [want_slots, used_slots]
+		"press":
+			# Real key event (not an InputMap action): exercises the same
+			# _unhandled_input path a player's keyboard uses, e.g. I for the bag.
+			if step.size() < 2:
+				return "press 缺少按键"
+			var key_name := str(step[1]).to_upper()
+			var keycode: int = OS.find_keycode_from_string(key_name)
+			if keycode == KEY_NONE:
+				return "未知按键：" + key_name
+			_current.text = "按键：" + key_name
+			var down := InputEventKey.new()
+			down.keycode = keycode
+			down.physical_keycode = keycode
+			down.pressed = true
+			Input.parse_input_event(down)
+			await _pause(0.12)
+			var up := InputEventKey.new()
+			up.keycode = keycode
+			up.physical_keycode = keycode
+			up.pressed = false
+			Input.parse_input_event(up)
+			await _pause(0.3)
+		"assert-panel":
+			if step.size() < 2:
+				return "assert-panel 需要 open|closed"
+			if main.bag_ui == null:
+				return "背包面板不可用"
+			var want_open := str(step[1]) == "open"
+			_current.text = "断言：背包面板%s" % ("打开" if want_open else "关闭")
+			if main.bag_ui.is_open != want_open:
+				return "期望%s，实际%s" % [
+						"打开" if want_open else "关闭",
+						"打开" if main.bag_ui.is_open else "关闭"]
+		"assert-panel-item":
+			if step.size() < 3:
+				return "assert-panel-item 需要类型与数量"
+			if main.bag_ui == null or not main.bag_ui.is_open:
+				return "背包面板没有打开"
+			var pi_type := str(step[1])
+			var pi_want := int(step[2])
+			var pi_have: int = main.bag_ui.slot_total(pi_type)
+			_current.text = "断言：面板 %s x%d" % [pi_type, pi_want]
+			if pi_have != pi_want:
+				return "期望 %s x%d，实际 x%d" % [pi_type, pi_want, pi_have]
+		"assert-panel-slots":
+			if step.size() < 2:
+				return "assert-panel-slots 缺少格数"
+			if main.bag_ui == null or not main.bag_ui.is_open:
+				return "背包面板没有打开"
+			var ps_want := int(step[1])
+			var ps_have: int = main.bag_ui.filled_slots()
+			_current.text = "断言：面板占用 %d 格" % ps_want
+			if ps_have != ps_want:
+				return "期望 %d 格，实际 %d 格" % [ps_want, ps_have]
+		"assert-panel-icons":
+			if main.bag_ui == null or not main.bag_ui.is_open:
+				return "背包面板没有打开"
+			_current.text = "断言：每个物品都加载出图标"
+			# Icons resolve through the logic thread, so give the first round
+			# trip a moment instead of depending on one fixed wait in the script.
+			var missing: Array = []
+			for attempt in range(20):
+				missing = main.bag_ui.missing_icons()
+				if missing.is_empty():
+					break
+				await _pause(0.1)
+			if not missing.is_empty():
+				return "缺图标：" + ", ".join(missing)
 		"assert-group-count":
 			if step.size() < 3:
 				return "assert-group-count 需要组名与数量"

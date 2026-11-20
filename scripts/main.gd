@@ -40,10 +40,12 @@ var map_h := 0
 
 var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
+const BagPanel := preload("res://scripts/bag_panel.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
 var mech: MechHud = null
+var bag_ui: BagPanel = null
 var gm: Node = null
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
@@ -69,6 +71,7 @@ var _log_history: Array[String] = []
 var _last_log := ""
 var _verb_hint := ""
 var _effects_polling := false
+var _reloading := false   # ignore a second F5 while the first reload is in flight
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -84,6 +87,9 @@ func _ready() -> void:
 	mech = MechHud.new()
 	add_child(mech)
 	mech.setup(font)
+	bag_ui = BagPanel.new()
+	add_child(bag_ui)
+	bag_ui.setup(font)
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
 	_setup_audio()
@@ -817,6 +823,45 @@ func _switch_map(map_id: String, at: String) -> void:
 	Game.send("game:people")
 	await _play_music_for_map(map_id)
 
+## Hot reload is a fresh boot, not travel: Scheme drops its run-time state, and
+## the live map is rebuilt from the authored .tscn so cut trees, emptied chests
+## and dropped logs all return to their starting look. Without the scene swap
+## the visuals stayed as stumps even though Scheme had been reset. The player
+## keeps the spot they were standing on (portal travel is the only thing that
+## moves them across a reload).
+func hot_reload() -> void:
+	if _reloading:
+		return
+	_reloading = true
+	var keep_pos: Vector2 = player.position if is_instance_valid(player) else Vector2.ZERO
+	var map_id := _current_map_id
+	if dialog_ui.is_open:
+		dialog_ui.close()
+	# Await the Scheme reset before re-registering: worker calls are queued in
+	# order, so the fresh scene rows land on top of the cleared registry.
+	await Game.reload_data()
+	await _switch_map(map_id, "")
+	if is_instance_valid(player):
+		player.position = keep_pos
+	_refresh_hud()
+	_reloading = false
+
+## Godot-side view of an entity, for acceptance. Scheme's view is read through
+## game:debug-entity; this one catches a scene that still paints a stump after
+## Scheme already says "tree".
+func entity_scene_type(eid: String) -> String:
+	return str(_entity_types.get(eid, ""))
+
+func entity_visual_is_tree(eid: String) -> bool:
+	var ref: Variant = _entities.get(eid, null)
+	if not is_instance_valid(ref) or not (ref is Sprite2D):
+		return false
+	var sprite := ref as Sprite2D
+	# Authored trees vary in scale; the stump swap changes the region, pivot and
+	# tint, so those three are the reliable "is it still a tree" signal.
+	return sprite.region_rect == TREE_REGION and not sprite.centered \
+			and sprite.modulate == Color.WHITE
+
 ## On entering a map, teleport every villager whose schedule is here onto their
 ## anchor and seed their state so they stay put until the schedule changes.
 ## Anyone scheduled elsewhere is hidden by _move_npcs.
@@ -874,7 +919,7 @@ func _refresh_hud() -> void:
 	elif _verb_hint != "":
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
-		hint = "E 互动 / 开箱 / 读牌   F 砍树   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
 	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
@@ -1024,6 +1069,8 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F8:
 			if gm != null:
+				if bag_ui != null and not gm.is_open:
+					bag_ui.close()
 				gm.toggle()
 				get_viewport().set_input_as_handled()
 
@@ -1031,17 +1078,28 @@ func _unhandled_input(event: InputEvent) -> void:
 	if gm != null and gm.is_open:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_I:
+			# The bag is a modal overlay: opening it while a conversation is up
+			# would stack two panels, so the dialog wins until it is closed.
+			if not dialog_ui.is_open and bag_ui != null:
+				bag_ui.toggle()
+			get_viewport().set_input_as_handled()
+			return
+		if bag_ui != null and bag_ui.is_open:
+			# While the bag is up, only I (above) and Esc act on the world.
+			if event.keycode == KEY_ESCAPE:
+				bag_ui.close()
+				get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_F1:
 			if mech != null:
 				mech.toggle_visible()
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F5:
-			# Fire-and-forget: state and HUD refresh when the reply lands.
-			# An open dialog holds stale menus, so close it first.
-			if dialog_ui.is_open:
-				dialog_ui.close()
-			Game.reload_data()
+			# Fire-and-forget: state, scene and HUD refresh when the reply lands.
+			# An open dialog holds stale menus, so hot_reload closes it.
+			hot_reload()
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F and not dialog_ui.is_open:

@@ -81,11 +81,20 @@
 (define (held-tool)
   (bag-find-tag "tool:axe"))
 
-;; Rows for the HUD: ((type-string count display-name) ...).
+;; Rows for the HUD and the bag panel:
+;;   ((type-string count display-name sprite-key slots) ...)
+;; `sprite-key` is the catalog item key from the type data ("" when absent);
+;; the shell resolves it to an icon through game:catalog-item. `slots` is how
+;; many grid cells the row takes, so a panel can spill a big stack into the
+;; next cell without duplicating the slot rules.
 (define (bag-rows)
   (map (lambda (kv)
-         (list (symbol->string (car kv)) (cdr kv)
-               (type-name (car kv))))
+         (let* ((type (car kv))
+                (n (cdr kv))
+                (sprite (type-field type 'sprite #f)))
+           (list (symbol->string type) n (type-name type)
+                 (if sprite sprite "")
+                 (row-slots type n))))
        *bag*))
 
 ;; ---- bridge entries --------------------------------------------------------
@@ -95,6 +104,11 @@
 (define (game:take item)
   (let ((type (string->symbol item)))
     (if (bag-add! type 1) #t #f)))
+
+;; (game:debug-give item-type [n]) — dev-only: put n things straight into the
+;; bag (GM console `give`). Returns the new stack count, or #f when full.
+(define (game:debug-give item . n)
+  (bag-add! (string->symbol item) (if (null? n) 1 (car n))))
 
 ;; View: (rows held-type-string held-name slots-used slots-max). Godot uses the
 ;; held tool for the F verb hint and the slot numbers for the HUD bag line.

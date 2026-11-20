@@ -34,10 +34,15 @@ const HELP := "GM 指令（F8 开关）:
   goto smithy-door          传送到锚点
   anchors                   列出全部锚点
   talk smith                传送到老王身边并打开对话
-  reload                    热重载数据（等同 F5）
+  reload                    热重载（等同 F5，当前场景一起回到开局）
+  bag                       开关背包面板（等同 I 键）
+  bag open / bag close      打开或关闭背包面板
+  give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   load portal               播放 SCM 验收脚本（Esc 中止/关闭 HUD）
   load fell-tree            验收：开箱拿斧 → 两下砍树 → 树桩 → 再生
   load read-sign            验收：E 阅读村口木牌
+  load inventory-panel      验收：开箱拿斧 → I 开面板 → 入包即时刷新
+  load reload-scene         验收：砍树留桩 → reload → 树与场景恢复、站位不变
   nl 让老王去酒馆           强制走 LLM 翻译
   clear                     清屏
 
@@ -45,7 +50,17 @@ const HELP := "GM 指令（F8 开关）:
 LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
-		"tp", "goto", "anchors", "talk", "reload", "nl"]
+		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "nl"]
+
+## Short names the GM `give` command accepts; anything else is treated as a
+## full type id ("item/material/ore").
+const ITEM_ALIASES := {
+	"ore": "item/material/ore",
+	"log": "item/material/log",
+	"stone": "item/material/stone",
+	"gel": "item/material/gel",
+	"axe": "item/tool/axe",
+}
 
 var main: Node
 var tick_rate := 1.0     # 1 normal, 0 paused, 20 = 20x
@@ -101,6 +116,8 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"anchors": return _anchors()
 		"talk": return await _talk(rest)
 		"reload": return await _reload()
+		"bag": return _bag(rest)
+		"give": return await _give(rest)
 	return "未知指令：%s（help 查看）" % cmd
 
 ## Free-form Chinese -> one command via the local model. Scheme builds the
@@ -293,5 +310,39 @@ func _talk(args: PackedStringArray) -> String:
 func _reload() -> String:
 	overrides.clear()
 	tick_rate = 1.0
-	await Game.reload_data()
-	return "已热重载：时钟、任务与背包都回到开局"
+	await main.hot_reload()
+	return "已热重载：时钟、任务、背包与当前场景都回到开局"
+
+## Open/close the inventory panel from the console. Same panel the I key
+## toggles; useful for acceptance scripts and screenshots.
+func _bag(args: PackedStringArray) -> String:
+	if main.bag_ui == null:
+		return "背包面板不可用"
+	var mode := args[0].to_lower() if args.size() >= 1 else "toggle"
+	match mode:
+		"open":
+			main.bag_ui.open()
+			return "背包面板：打开"
+		"close":
+			main.bag_ui.close()
+			return "背包面板：关闭"
+		_:
+			main.bag_ui.toggle()
+			return "背包面板：%s" % ("打开" if main.bag_ui.is_open else "关闭")
+
+## Dev-only item injection, so the panel's live refresh can be exercised
+## without walking to a pickup. Goes through Scheme's bag-add! like every
+## other pickup.
+func _give(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "用法：give <item-type> [n]（如 give ore 3）"
+	var item := str(ITEM_ALIASES.get(args[0].to_lower(), args[0]))
+	var n := int(args[1]) if args.size() >= 2 else 1
+	if n <= 0:
+		return "数量要大于 0"
+	var left: Variant = await Game.call_async("game:debug-give", [item, n])
+	if not (left is int or left is float):
+		return "背包放不下 %s x%d" % [item, n]
+	# The panel and HUD read the bridge snapshot, so ask for a fresh bag view.
+	Game.send("game:bag")
+	return "背包 ← %s x%d（该栈共 %d）" % [item, n, int(left)]

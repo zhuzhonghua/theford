@@ -37,7 +37,7 @@ var snapshot := {
 	"minute": 0,
 	"weather": "sun",
 	"people": [],       # [[id, "map:anchor", activity], ...]
-	"bag": [],          # [[type, count, display-name], ...]
+	"bag": [],          # [[type, count, display-name, sprite-key, slots], ...]
 	"bag_slots": 0,     # slots the carried stacks take
 	"bag_capacity": 30, # slots the bag has
 	"held": "",         # tool type-string in hand, or ""

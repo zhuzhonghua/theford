@@ -35,8 +35,22 @@
                (village = "assets/na/Audio/Musics/4 - Village.ogg")))
     ;; sfx: event key -> path (wired in the audio phase)
     (sfx = (table))
-    ;; items: type sprite key -> path (wired in the inventory phase)
-    (items = (table))))
+    ;; items: sprite key -> (path rect) for the bag panel. `rect` is
+    ;; (x y w h) inside the sheet; (0 0 0 0) means the whole image. Keys match
+    ;; the `sprite` field on data/types.scm rows ("item:axe", "item:ore", ...).
+    (items = (table
+               (item:axe
+                 (path = "assets/na/Items/Tool/Axe.png"))
+               (item:ore
+                 (path = "assets/na/Items/Resource/Rock.png"))
+               (item:stone
+                 (path = "assets/na/Items/Resource/Rock.png"))
+               (item:log
+                 (path = "assets/na/Backgrounds/Tilesets/TilesetNature.png")
+                 (rect = '(208 208 32 16)))
+               (item:gel
+                 (path = "assets/na/Backgrounds/Tilesets/TilesetHouse.png")
+                 (rect = '(336 224 16 16)))))))
 
 ;; (catalog-section key) — the table for a top-level section, or #f.
 (define (catalog-section key)
@@ -59,12 +73,25 @@
   (let ((s (catalog-section 'sfx)))
     (and s (table-ref s key))))
 
+;; (catalog-item key) — (path x y w h) for an item sprite, or #f. A rect of
+;; (0 0 0 0) means "use the whole image". `key` is a symbol like item:axe.
+(define (catalog-item key)
+  (let ((items (catalog-section 'items)))
+    (and items
+         (let ((entry (table-ref items key)))
+           (and entry
+                (let ((path (table-ref entry 'path #f)))
+                  (and path
+                       (append (list path)
+                               (table-ref entry 'rect '(0 0 0 0))))))))))
+
 ;; Bridge-visible wrappers (Godot calls game:catalog-*).
 ;; Ids arrive as strings; convert once here, symbols everywhere inside.
 (define (game:catalog-music key) (catalog-music (string->symbol key)))
 (define (game:catalog-faceset id) (catalog-character (string->symbol id) 'faceset))
 (define (game:catalog-spritesheet id) (catalog-character (string->symbol id) 'spritesheet))
 (define (game:catalog-sfx key) (catalog-sfx (string->symbol key)))
+(define (game:catalog-item key) (catalog-item (string->symbol key)))
 
 ;; (game:debug-catalog) — whole catalog, for the 1.6 smoke test.
 (define (game:debug-catalog)
