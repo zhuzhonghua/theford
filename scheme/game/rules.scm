@@ -27,11 +27,11 @@
 ;;   (spawn (type type-id) (at role) (count n))
 ;;   (vfx (fx name))
 ;;   (log (text s))                   — s may be (prop role key)/(param key)
-;;   (open)                           — host chest moves what fits into the bag
+;;   (open)                           — host container toggles its open state
 ;;
 ;; Effects are returned as plain data for Godot:
 ;;   ("hit" id power hp) ("transform" id type) ("spawn" type at-id)
-;;   ("vfx" id fx) ("log" text)
+;;   ("vfx" id fx) ("log" text) ("container" id "open"|"closed")
 ;; Nothing here decides presentation; Godot renders the list.
 
 (require "game.util")
@@ -337,35 +337,18 @@
     (when (not (string=? text ""))
       (push-effect "log" text))))
 
-;; Move what fits of a chest's contents into the bag; return the rows left
-;; (the chest keeps them until there is room).
-(define (open-into-bag rows)
-  (cond ((null? rows) '())
-        (else
-         (let* ((row (car rows))
-                (type (string->symbol (car row)))
-                (n (cadr row)))
-           (if (bag-add! type n)
-               (begin
-                 (push-effect "log"
-                              (string-append "拿到 "
-                                             (type-name type)
-                                             " x" (number->string n)))
-                 (open-into-bag (cdr rows)))
-               (cons row (open-into-bag (cdr rows))))))))
-
+;; Toggle a container's open state. The contents stay put: the shell shows a
+;; transfer panel for the host and moves stacks through game:transfer.
 (define (do-open args roles)
   (let ((host (role-value roles 'host)))
     (when host
-      (let ((contents (entity-prop host 'contents)))
-        (if (or (not contents) (null? contents))
-            (push-effect "log" "箱子是空的。")
-            (begin
-              (push-effect "log" "你打开了箱子。")
-              (let ((left (open-into-bag contents)))
-                (entity-set-prop! host 'contents left)
-                (when (not (null? left))
-                  (push-effect "log" "背包满了。")))))))))
+      (if (entity-prop host 'open)
+          (begin
+            (entity-remove-prop! host 'open)
+            (push-effect "container" host "closed"))
+          (begin
+            (entity-set-prop! host 'open #t)
+            (push-effect "container" host "open"))))))
 
 ;; ---- effect tuples ---------------------------------------------------------
 

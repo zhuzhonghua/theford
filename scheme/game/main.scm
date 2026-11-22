@@ -28,6 +28,9 @@
 ;;   game:use actor target      (rules.scm) F verb: tool on target, returns effects
 ;;   game:handle actor target   (rules.scm) E verb on a sign/chest, returns effects
 ;;   game:bag                   (inventory.scm) bag rows + held tool
+;;   game:container id          (containers.scm) open container view, or #f
+;;   game:transfer id from item all  (containers.scm) move a stack to the other side
+;;   game:close-container id    (containers.scm) dismiss the container panel
 ;;   game:drain-effects         (rules.scm) effects queued by tick hooks
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
@@ -45,6 +48,7 @@
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   entities.scm runtime registry: id -> (type hp tags props); transforms keep props
 ;;   inventory.scm item stacks: counts, slot capacity, held-tool lookup
+;;   containers.scm container contents: slots, transfers, panel view
 ;;   rules.scm  event dispatch: specificity, condition tree, effect ops, tick stages
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   gm.scm     optional debug module: deterministic clock/weather, NL->command
@@ -70,6 +74,7 @@
 (require "game.talk")
 (require "game.entities")
 (require "game.rules")
+(require "game.containers")
 (require "game.data.rules")
 ; Optional debug module (see gm.scm). Remove this line and the file to ship
 ; without the GM console; nothing else references it.
@@ -131,6 +136,9 @@
   ;; A hot reload is "boot again": the bag is run-time state, so the player
   ;; starts empty instead of keeping items from the previous data set.
   (bag-empty!)
+  ;; So are container contents — an emptied chest refills on a fresh boot.
+  ;; (Map travel keeps them; only a reload returns the world to its start.)
+  (reset-containers!)
   ;; Entities are run-time state too. A stump (or an emptied chest) from the
   ;; previous session must not survive: Godot re-registers the authored scene
   ;; right after this call, repopulating the registry with starting values.

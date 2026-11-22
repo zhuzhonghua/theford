@@ -41,6 +41,7 @@ var snapshot := {
 	"bag_slots": 0,     # slots the carried stacks take
 	"bag_capacity": 30, # slots the bag has
 	"held": "",         # tool type-string in hand, or ""
+	"container": {},    # open container view: {id, name, capacity, slots, rows}
 	"model": "",
 	"llm_version": "",
 	"last_turn": {},
@@ -200,6 +201,7 @@ func _absorb(fn: String, result: Variant) -> void:
 				_store_turn(result[4], learned)
 		"game:reload":
 			snapshot["last_turn"] = {}
+			snapshot["container"] = {}
 			if result is Array and result.size() == 6:
 				_write_snapshot(result[0], result[1], result.slice(2))
 			# Even an unchanged status needs a repaint: last_turn was cleared.
@@ -214,6 +216,25 @@ func _absorb(fn: String, result: Variant) -> void:
 				snapshot["bag_slots"] = int(result[3]) if result.size() >= 4 else 0
 				snapshot["bag_capacity"] = int(result[4]) if result.size() >= 5 else 30
 				snapshot_changed.emit()
+		"game:container", "game:transfer":
+			_write_container(result)
+		"game:close-container":
+			snapshot["container"] = {}
+			snapshot_changed.emit()
+
+## An open container view is (id name capacity slots-used rows); #f closes it.
+func _write_container(result: Variant) -> void:
+	if result is Array and result.size() >= 5:
+		snapshot["container"] = {
+			"id": str(result[0]),
+			"name": str(result[1]),
+			"capacity": int(result[2]),
+			"slots": int(result[3]),
+			"rows": result[4] if result[4] is Array else [],
+		}
+	else:
+		snapshot["container"] = {}
+	snapshot_changed.emit()
 
 ## NPC schedule rows: [id, anchor, activity]. Repaint only on a real change so
 ## the per-second refresh does not spam the HUD.

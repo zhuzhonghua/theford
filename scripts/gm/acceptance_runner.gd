@@ -364,8 +364,12 @@ func _execute(step: Variant, id: int) -> String:
 			# _unhandled_input path a player's keyboard uses, e.g. I for the bag.
 			if step.size() < 2:
 				return "press 缺少按键"
-			var key_name := str(step[1]).to_upper()
+			var key_name := str(step[1])
 			var keycode: int = OS.find_keycode_from_string(key_name)
+			if keycode == KEY_NONE:
+				keycode = OS.find_keycode_from_string(key_name.capitalize())
+			if keycode == KEY_NONE:
+				keycode = OS.find_keycode_from_string(key_name.to_upper())
 			if keycode == KEY_NONE:
 				return "未知按键：" + key_name
 			_current.text = "按键：" + key_name
@@ -427,6 +431,64 @@ func _execute(step: Variant, id: int) -> String:
 				await _pause(0.1)
 			if not missing.is_empty():
 				return "缺图标：" + ", ".join(missing)
+		"assert-container":
+			if step.size() < 2:
+				return "assert-container 需要 open|closed"
+			if main.container_ui == null:
+				return "容器面板不可用"
+			var want_box_open := str(step[1]) == "open"
+			_current.text = "断言：容器面板%s" % ("打开" if want_box_open else "关闭")
+			if main.container_ui.is_open != want_box_open:
+				return "期望%s，实际%s" % [
+						"打开" if want_box_open else "关闭",
+						"打开" if main.container_ui.is_open else "关闭"]
+		"assert-container-item":
+			if step.size() < 3:
+				return "assert-container-item 需要类型与数量"
+			if main.container_ui == null or not main.container_ui.is_open:
+				return "容器面板没有打开"
+			var ci_type := str(step[1])
+			var ci_want := int(step[2])
+			var ci_have: int = main.container_ui.slot_total("chest", ci_type)
+			_current.text = "断言：箱子 %s x%d" % [ci_type, ci_want]
+			if ci_have != ci_want:
+				return "期望 %s x%d，实际 x%d" % [ci_type, ci_want, ci_have]
+		"assert-container-slots":
+			if step.size() < 2:
+				return "assert-container-slots 缺少格数"
+			if main.container_ui == null or not main.container_ui.is_open:
+				return "容器面板没有打开"
+			var cs_want := int(step[1])
+			var cs_have: int = main.container_ui.filled_slots("chest")
+			_current.text = "断言：箱子占用 %d 格" % cs_want
+			if cs_have != cs_want:
+				return "期望 %d 格，实际 %d 格" % [cs_want, cs_have]
+		"assert-container-icons":
+			if main.container_ui == null or not main.container_ui.is_open:
+				return "容器面板没有打开"
+			_current.text = "断言：箱子里的物品都加载出图标"
+			var box_missing: Array = []
+			for attempt in range(20):
+				box_missing = main.container_ui.missing_icons("chest")
+				if box_missing.is_empty():
+					break
+				await _pause(0.1)
+			if not box_missing.is_empty():
+				return "缺图标：" + ", ".join(box_missing)
+		"click-item":
+			# A real left click on the painted cell (Shift for one), so the
+			# replay exercises the panel's own handler, not a back door.
+			if step.size() < 3:
+				return "click-item 需要 chest|bag 与物品类型"
+			var click_side := str(step[1])
+			if click_side != "chest" and click_side != "bag":
+				return "click-item 的侧别只能是 chest|bag"
+			var click_one: bool = step.size() >= 4 and str(step[3]) == "one"
+			var click_error: String = await _click_container_slot(
+					click_side, str(step[2]), click_one)
+			if click_error != "":
+				return click_error
+			await _pause(0.4)
 		"assert-group-count":
 			if step.size() < 3:
 				return "assert-group-count 需要组名与数量"
@@ -456,6 +518,22 @@ func _pause(seconds: float) -> void:
 	var wait := seconds * _pace
 	if wait > 0.0:
 		await get_tree().create_timer(wait).timeout
+
+## Transfer a painted container/bag cell by calling the panel's own handler.
+## A real player clicks the cell (container_panel.gd :: _on_slot_input); in a
+## headless run the display server has no window, so injected mouse events never
+## reach a Control's gui_input. Going through click_slot exercises the same
+## panel path — and the same game:transfer call — without depending on a screen.
+func _click_container_slot(side: String, type_id: String, one: bool) -> String:
+	if main.container_ui == null or not main.container_ui.is_open:
+		return "容器面板没有打开"
+	var idx: int = main.container_ui.slot_index(side, type_id)
+	if idx < 0:
+		return "容器面板里没有 %s：%s" % [side, type_id]
+	_current.text = "点击%s的 %s%s" % [side, type_id, "（一个）" if one else ""]
+	main.container_ui.click_slot(side, type_id, not one)
+	await _pause(0.4)
+	return ""
 
 ## Walk to an entity until it is within arm's reach. Uses the same grid route
 ## villagers take, so a replay shows the player crossing the room first.

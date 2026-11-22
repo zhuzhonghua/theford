@@ -1,0 +1,57 @@
+;;; 回归验收：箱子内容跨场景切换保留（避免物品复制）。
+;;; GM 中输入：load container-persist
+;;;
+;;; 复现路径：在铁匠铺开箱把斧头点进背包 → 出门砍树 → 再进屋开箱。
+;;; 之前每次切图都会从场景 metadata 重新注册实体，把 contents 重置成初始
+;;; 的斧头，于是背包里有一把、箱子里又冒出一把。现在箱子内容存在 Scheme
+;;; 的独立表里（跟背包一样跨图保留），只有 F5 / reload 才回到开局。
+;;; 脚本不还原场景：跑完后玩家在铁匠铺，箱子已空、斧头在背包里。
+
+(define (acceptance:steps)
+  (list
+    (list "note" "回归：箱子内容跨场景切换要保留，不能把斧头复制出来" "2.6")
+    (list "gm" "speed 0")
+    (list "gm" "time 12:30")
+    (list "place" "village" "village:riverbank")
+    (list "assert-map" "village")
+    (list "note" "沿村道往北进铁匠铺，开箱把斧头点进背包" "2.0")
+    (list "walk" "smithy-door")
+    (list "move" "move_up" "smithy")
+    (list "assert-map" "smithy")
+    (list "wait" "0.4")
+    (list "walk-interact")
+    (list "assert-container" "open")
+    (list "assert-container-item" "item/tool/axe" "1")
+    (list "click-item" "chest" "item/tool/axe")
+    (list "assert-container-item" "item/tool/axe" "0")
+    (list "assert-bag" "item/tool/axe" "1")
+    (list "press" "E")
+    (list "assert-container" "closed")
+    (list "note" "出门回村口（中途切一次场景）" "2.2")
+    (list "walk" "door")
+    (list "move" "move_down" "village")
+    (list "assert-map" "village")
+    (list "wait" "0.4")
+    (list "note" "再进铁匠铺，开箱确认斧头没有重新出现" "2.2")
+    (list "walk" "smithy-door")
+    (list "move" "move_up" "smithy")
+    (list "assert-map" "smithy")
+    (list "wait" "0.4")
+    (list "walk-interact")
+    (list "assert-container" "open")
+    (list "assert-container-item" "item/tool/axe" "0")
+    (list "assert-container-slots" "0")
+    (list "assert-bag" "item/tool/axe" "1")
+    (list "press" "E")
+    (list "assert-container" "closed")
+    (list "note" "最后热重载：回到开局，箱子该重新装满斧头、背包清空" "2.4")
+    (list "gm" "reload")
+    (list "assert-map" "smithy")
+    (list "walk-interact")
+    (list "assert-container" "open")
+    (list "assert-container-item" "item/tool/axe" "1")
+    (list "assert-bag" "item/tool/axe" "0")
+    (list "press" "E")
+    (list "assert-container" "closed")
+    (list "gm" "speed 1")
+    (list "note" "验收完成：跨图不复制物品，热重载才重置箱子" "2.4")))

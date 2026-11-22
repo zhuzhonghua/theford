@@ -41,11 +41,13 @@ var map_h := 0
 var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
 const BagPanel := preload("res://scripts/bag_panel.gd")
+const ContainerPanel := preload("res://scripts/container_panel.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
 var mech: MechHud = null
 var bag_ui: BagPanel = null
+var container_ui: ContainerPanel = null
 var gm: Node = null
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
@@ -90,6 +92,10 @@ func _ready() -> void:
 	bag_ui = BagPanel.new()
 	add_child(bag_ui)
 	bag_ui.setup(font)
+	container_ui = ContainerPanel.new()
+	add_child(container_ui)
+	container_ui.setup(font)
+	container_ui.close_requested.connect(_close_container)
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
 	_setup_audio()
@@ -356,21 +362,24 @@ func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
 func _update_verb_hint() -> void:
 	var hint := ""
 	if player != null and Game.booted:
-		var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
-		if tree[0] != null:
-			hint = "F 砍树" if str(Game.snapshot.get("held", "")) != "" else "F 需要斧头"
+		if container_ui != null and container_ui.is_open:
+			hint = "E / Esc 关闭箱子"
 		else:
-			var inter := _nearest_interactable(player.position, 48.0)
-			if inter != "":
-				var itype := str(_entity_types.get(inter, ""))
-				if itype == "fixture/sign":
-					hint = "E 阅读木牌"
-				elif itype == "fixture/container/chest":
-					hint = "E 打开箱子"
+			var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
+			if tree[0] != null:
+				hint = "F 砍树" if str(Game.snapshot.get("held", "")) != "" else "F 需要斧头"
 			else:
-				var npc := _nearest_npc(player.position, 30.0)
-				if npc != null:
-					hint = "E 交谈"
+				var inter := _nearest_interactable(player.position, 48.0)
+				if inter != "":
+					var itype := str(_entity_types.get(inter, ""))
+					if itype == "fixture/sign":
+						hint = "E 阅读木牌"
+					elif itype == "fixture/container/chest":
+						hint = "E 打开箱子"
+				else:
+					var npc := _nearest_npc(player.position, 30.0)
+					if npc != null:
+						hint = "E 交谈"
 	if hint != _verb_hint:
 		_verb_hint = hint
 		_refresh_hud()
@@ -425,8 +434,49 @@ func _apply_effects(effects: Variant) -> void:
 				_vfx_play(str(eff[1]), str(eff[2]))
 			"log":
 				_log_line(str(eff[1]))
+			"container":
+				_apply_container_effect(str(eff[1]), str(eff[2]))
 	# Chest contents / held-tool hints live in Scheme; ask for a fresh view.
 	Game.send("game:bag")
+
+## `open` effect from the rule engine: show or hide the container panel. The
+## container's `open` prop is already set/cleared in Scheme.
+func _apply_container_effect(eid: String, state: String) -> void:
+	if state == "closed":
+		if container_ui != null:
+			container_ui.close()
+		_set_chest_open_sprite(eid, false)
+		return
+	_open_container(eid)
+
+## Ask Scheme for the open container's view, then paint both sides. The reply
+## lands in Game.snapshot before this await returns, so the panel can read it.
+func _open_container(eid: String) -> void:
+	if container_ui == null:
+		return
+	if bag_ui != null and bag_ui.is_open:
+		bag_ui.close()
+	var view: Variant = await Game.call_async("game:container", [eid])
+	if view == null:
+		return
+	_set_chest_open_sprite(eid, true)
+	container_ui.open(eid)
+
+## Close the panel from the shell side (Esc / E / the ✕ button) and clear the
+## container's open state in Scheme.
+func _close_container() -> void:
+	if container_ui == null or not container_ui.is_open:
+		return
+	var eid := container_ui.container_id
+	container_ui.close()
+	_set_chest_open_sprite(eid, false)
+	Game.send("game:close-container", [eid])
+
+## The chest sprite has two frames (closed/open) in its sheet.
+func _set_chest_open_sprite(eid: String, open: bool) -> void:
+	var ref: Variant = _entities.get(eid, null)
+	if is_instance_valid(ref) and ref is Sprite2D:
+		(ref as Sprite2D).frame = 1 if open else 0
 
 ## --- effect helpers ----------------------------------------------------------
 
@@ -772,6 +822,8 @@ func _move_npcs(delta: float) -> void:
 func _enter_portal(portal_id: String) -> void:
 	if dialog_ui.is_open:
 		dialog_ui.close()
+	if container_ui != null and container_ui.is_open:
+		container_ui.close()
 	var result: Variant = await Game.call_async("game:enter-portal", [portal_id])
 	if not (result is Array and result.size() >= 2):
 		push_warning("[portal] bad reply for " + portal_id)
@@ -791,6 +843,8 @@ func _enter_portal(portal_id: String) -> void:
 ## portals, nav grid, camera) and re-seeds NPC positions from the schedule.
 func _switch_map(map_id: String, at: String) -> void:
 	_current_map_id = map_id
+	if container_ui != null and container_ui.is_open:
+		container_ui.close()
 	var scene_path: String = _scene_path_cache.get(map_id, "")
 	if scene_path == "":
 		scene_path = str(await Game.call_async("game:map-scene", [map_id]))
@@ -837,6 +891,8 @@ func hot_reload() -> void:
 	var map_id := _current_map_id
 	if dialog_ui.is_open:
 		dialog_ui.close()
+	if container_ui != null and container_ui.is_open:
+		container_ui.close()
 	# Await the Scheme reset before re-registering: worker calls are queued in
 	# order, so the fresh scene rows land on top of the cleared registry.
 	await Game.reload_data()
@@ -1071,11 +1127,21 @@ func _input(event: InputEvent) -> void:
 			if gm != null:
 				if bag_ui != null and not gm.is_open:
 					bag_ui.close()
+				if container_ui != null and not gm.is_open:
+					_close_container()
 				gm.toggle()
 				get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if gm != null and gm.is_open:
+		return
+	# The container panel is modal: E / Esc close it, nothing else reaches the
+	# world while both sides are on screen.
+	if container_ui != null and container_ui.is_open:
+		if event is InputEventKey and event.pressed and not event.echo \
+				and (event.keycode == KEY_ESCAPE or event.keycode == KEY_E):
+			_close_container()
+			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_I:

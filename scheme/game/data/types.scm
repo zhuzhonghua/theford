@@ -81,7 +81,7 @@
                   (lasts = 9600)
                   (fx = "leaves"))))
     (fixture/container/chest
-      (name = "chest")
+      (name = "箱子")
       (tags = '("wooden" "flammable"))
       (sprite = "fixture:chest")
       (props = (table

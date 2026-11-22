@@ -15,7 +15,8 @@ extends CanvasLayer
 
 const COLUMNS := 10
 const SLOT_COUNT := 30  # keep in sync with inventory.scm bag-slots
-const STACK_MAX := 999  # keep in sync with inventory.scm stack-max
+const ItemSlots := preload("res://scripts/item_slots.gd")
+const ItemIcons := preload("res://scripts/item_icons.gd")
 
 var is_open := false
 
@@ -27,14 +28,14 @@ var _grid: GridContainer
 var _slots: Array[Panel] = []
 var _icons: Array[TextureRect] = []
 var _counts: Array[Label] = []
-## sprite key -> {texture: Texture2D}; an empty dictionary means "loading" (or
-## "no icon"), which also stops repeated requests for the same key.
-var _icon_cache := {}
+## sprite key -> Texture2D, shared shape with the container panel.
+var _icon_cache: ItemIcons = null
 ## [[type, amount, name, sprite], ...] as currently painted, for acceptance.
 var _slot_rows: Array = []
 
 func setup(font: Font) -> void:
 	_font = font
+	_icon_cache = ItemIcons.new()
 	layer = 25  # above HUD/dialog (10) and the mechanism HUD (20)
 	name = "BagPanelLayer"
 	_build()
@@ -80,15 +81,7 @@ func filled_slots() -> int:
 ## the catalog path is wrong. Acceptance fails on a non-empty list, so a bad
 ## asset path cannot pass as "the grid looks fine".
 func missing_icons() -> Array:
-	var out: Array = []
-	for entry in _slot_rows:
-		var sprite := str(entry[3])
-		if sprite == "" or out.has(sprite):
-			continue
-		var hit: Dictionary = _icon_cache.get(sprite, {})
-		if hit.get("texture", null) == null:
-			out.append(sprite)
-	return out
+	return _icon_cache.missing(_slot_rows)
 
 ## ------------------------------------------------------------- rendering --
 
@@ -103,7 +96,7 @@ func _on_bridge_ready(_llm: bool) -> void:
 func _refresh() -> void:
 	if not is_open or _grid == null:
 		return
-	var slots := _build_slots(Game.snapshot.get("bag", []))
+	var slots := ItemSlots.build_slots(Game.snapshot.get("bag", []))
 	_slot_rows = slots
 	_title.text = "背包    %d / %d 格" % [
 			int(Game.snapshot.get("bag_slots", slots.size())),
@@ -120,7 +113,7 @@ func _refresh() -> void:
 			_icons[i].texture = null
 			_counts[i].text = ""
 			_slots[i].tooltip_text = ""
-			_slots[i].add_theme_stylebox_override("panel", _slot_style(false))
+			_slots[i].add_theme_stylebox_override("panel", ItemSlots.slot_style(false))
 			continue
 		var type_id := str(entry[0])
 		var amount := int(entry[1])
@@ -130,66 +123,11 @@ func _refresh() -> void:
 		_counts[i].text = str(amount) if amount > 1 else ""
 		_slots[i].tooltip_text = "%s x%d" % [display, amount]
 		_slots[i].add_theme_stylebox_override("panel",
-				_slot_style(type_id == held))
-		_icons[i].texture = _icon_for(sprite)
+				ItemSlots.slot_style(type_id == held))
+		_icons[i].texture = _icon_cache.texture_for(sprite, _on_icon_loaded)
 
-## Expand Scheme's stack rows into one entry per grid cell. `row[4]` is the
-## number of cells the row takes: a tool with 3 pieces yields three cells of
-## one; a 1000-ore stack yields 999 + 1. The rule matches inventory.scm's
-## row-slots exactly, including the "slots == count means pieces" case.
-func _build_slots(rows: Array) -> Array:
-	var out: Array = []
-	for row in rows:
-		if not (row is Array and row.size() >= 3):
-			continue
-		var type_id := str(row[0])
-		var count := int(row[1])
-		if count <= 0:
-			continue
-		var display := str(row[2])
-		var sprite := str(row[3]) if row.size() >= 4 else ""
-		var cells := int(row[4]) if row.size() >= 5 else 1
-		if cells >= count:
-			for i in range(count):
-				out.append([type_id, 1, display, sprite])
-		else:
-			var left := count
-			while left > 0:
-				var amount := mini(left, STACK_MAX)
-				out.append([type_id, amount, display, sprite])
-				left -= amount
-	return out
-
-func _icon_for(sprite: String) -> Texture2D:
-	if sprite == "":
-		return null
-	if _icon_cache.has(sprite):
-		var hit: Dictionary = _icon_cache[sprite]
-		return hit.get("texture", null)
-	_request_icon(sprite)
-	return null
-
-## Resolve one sprite key through the catalog. The cache holds a pending empty
-## dictionary while the worker replies, so a repaint never floods the VM.
-func _request_icon(sprite: String) -> void:
-	if _icon_cache.has(sprite):
-		return
-	_icon_cache[sprite] = {}
-	var info: Variant = await Game.call_async("game:catalog-item", [sprite])
-	var texture: Texture2D = null
-	if info is Array and info.size() >= 1 and str(info[0]) != "":
-		var source: Texture2D = load("res://" + str(info[0]))
-		if source != null:
-			texture = source
-			if info.size() >= 5:
-				var w := int(info[3])
-				var h := int(info[4])
-				if w > 0 and h > 0:
-					var atlas := AtlasTexture.new()
-					atlas.atlas = source
-					atlas.region = Rect2(int(info[1]), int(info[2]), w, h)
-					texture = atlas
-	_icon_cache[sprite] = {"texture": texture}
+## A catalog reply landed: repaint so the new icon appears without a new key.
+func _on_icon_loaded() -> void:
 	if is_open:
 		_refresh()
 
@@ -258,7 +196,7 @@ func _build() -> void:
 		var slot := Panel.new()
 		slot.custom_minimum_size = Vector2(58, 58)
 		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		slot.add_theme_stylebox_override("panel", _slot_style(false))
+		slot.add_theme_stylebox_override("panel", ItemSlots.slot_style(false))
 		_grid.add_child(slot)
 		_slots.append(slot)
 
@@ -297,14 +235,6 @@ func _build() -> void:
 	hint.text = "I 关闭   ·   三行十格，同类物品叠成一格"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(hint)
-
-func _slot_style(held: bool) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.13, 0.11, 0.09, 0.92)
-	sb.border_color = Color(0.85, 0.68, 0.30) if held else Color(0.36, 0.28, 0.18)
-	sb.set_border_width_all(3 if held else 2)
-	sb.set_corner_radius_all(4)
-	return sb
 
 func _make_label(size: int, color: Color) -> Label:
 	var label := Label.new()

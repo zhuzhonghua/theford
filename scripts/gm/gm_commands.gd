@@ -304,6 +304,8 @@ func _talk(args: PackedStringArray) -> String:
 	main.player.position = npc.position + Vector2(20, 0)
 	if main.dialog_ui.is_open:
 		main.dialog_ui.close()
+	if main.container_ui != null and main.container_ui.is_open:
+		main._close_container()
 	await main.dialog_ui.open_npc(npc)
 	return "已打开 %s 的对话" % npc.display_name
 
