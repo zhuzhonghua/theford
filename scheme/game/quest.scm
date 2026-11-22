@@ -1,191 +1,363 @@
-;; quest.scm — generic quest engine over data/quests.scm.
+;; quest.scm — generic multi-quest engine over data/quests.scm.
 ;;
 ;; Quest definitions (objectives, stages, dialogue, take/reward) live in
-;; data/quests.scm. This module only holds mutable state and applies intents
+;; data/quests.scm. This module owns only mutable state and applies intents
 ;; against the current stage's data. It is the only module allowed to change
 ;; quest state: the LLM may narrate, but `apply-intent` moves state.
 ;;
-;; Public surface (unchanged so talk.scm keeps working):
-;;   *quest-state*  symbol: not-offered | accepted | completed
-;;   ore-carried    ore picked up but not handed in (the bag's ore stack)
-;;   *delivered*    ore handed to the smith
-;;   quest-text     current HUD description
-;;   apply-intent   (status . reason) for accept | give | chat
-;;   verdict-hint   LLM steering per verdict status
-;;   (game:status aggregates quest + clock; it lives in main.scm)
+;; Several quests advance in parallel. Each quest id has its own state:
+;;   stage     current stage number
+;;   progress  objective-id -> amount delivered / times observed
+;;   histories per-npc conversation history used to build LLM prompts
 ;;
-;; Counts are not mirrored here: what the smith's objective counts is the bag's
-;; ore stack (inventory.scm), so taking and handing in move the same numbers.
+;; An objective has a `kind`:
+;;   count   deliver N of a bag item type (the smith's ore, the herbs)
+;;   talk    talk to the quest giver about the quest N times
+;;   target  interact with a named world target N times
+;; The engine tracks all three through the same `progress` slot; only the
+;; intent that fills it differs (give / talk / target).
+;;
+;; Rewards are granted on entering a stage with a `reward` field: xp is added
+;; to the shared player counter and items go into the same bag every pickup
+;; uses. A `complete` stage bumps a counter the shell watches for a jingle.
+;;
+;; Public surface used by talk.scm / main.scm / the bridge:
+;;   quest-text          combined HUD description of all live quests
+;;   ore-carried         ore in the bag (legacy HUD field)
+;;   quest-for-npc       quest id whose giver is this npc, or #f
+;;   qtext/qstate-sym/qtopics/qobjective-carried   quest-scoped views
+;;   apply-intent-for    (status . reason) for accept | give | chat/talk | target
+;;   reset-quest!        back to every quest's start, xp and completions zero
+;;   game:quests         (xp completions rows) for the quest log UI
 
 (require "game.util")
 (require "game.data.quests")
 (require "game.inventory")
 
-;; The active quest is the smith-ore chain (only one quest for now).
-(define *active-quest* 'smith-ore)
+;; ---- per-quest state --------------------------------------------------------
 
-(define (quest-def)
-  (table-ref *quests* *active-quest*))
+(define *quests-state* '())   ; alist: quest-id -> state hash
+(define *xp* 0)
+(define *quest-completions* 0)
 
-;; One field of the active quest's definition, with a structural default.
-(define (quest-field key default)
-  (table-ref (quest-def) key default))
+(define (valid-quest? id)
+  (and id (quest-def id) #t))
 
-;; Mechanism-trace text and LLM steering lines are quest data too.
-(define (quest-reason key)
-  (table-ref (quest-field 'reasons (table)) key ""))
+(define (quest-def id)
+  (table-ref *quests* id #f))
 
-(define (quest-giver)
-  (quest-field 'giver 'smith))
+(define (quest-ids)
+  *quest-order*)
 
-(define (quest-stages)
-  (quest-field 'stages (table)))
+(define (ensure-quest-state! id)
+  (let ((hit (alist-get *quests-state* id)))
+    (if hit
+        hit
+        (let ((st (make-hash-table))
+              (def (quest-def id)))
+          (hash-table-set! st 'stage (if def (table-ref def 'start 10) 10))
+          (hash-table-set! st 'progress (make-hash-table))
+          (hash-table-set! st 'histories '())
+          (set! *quests-state* (alist-put *quests-state* id st))
+          st))))
 
-(define (quest-objectives)
-  (quest-field 'objectives (table)))
+(define (qstate id) (ensure-quest-state! id))
 
-(define (current-stage-num)
-  *stage*)
+(define (qget id key default)
+  (table-ref (qstate id) key default))
 
-(define (current-stage)
-  (table-ref (quest-stages) (current-stage-num)))
+(define (qset! id key val)
+  (hash-table-set! (qstate id) key val))
 
-;; Current stage's topic menu. The accepted stage has separate menus for
-;; "carrying" and "empty", so the give entry only shows when it can be used.
-(define (quest-topic-menu)
-  (let* ((stage (current-stage))
-         (key (cond ((not (eq? *quest-state* 'accepted)) 'topics)
-                    ((> (ore-carried) 0) 'topics-carry)
-                    (else 'topics-empty))))
-    (table-ref stage key)))
+;; ---- definitions ------------------------------------------------------------
 
-(define (objective-need obj-id)
-  (let ((obj (table-ref (quest-objectives) obj-id)))
-    (if obj (table-ref obj 'need 0) 0)))
+(define (qfield id key default)
+  (let ((def (quest-def id)))
+    (if def (table-ref def key default) default)))
 
-;; ---- mutable state -----------------------------------------------------------
+(define (qstages id) (qfield id 'stages (table)))
+(define (qstage-num id) (qget id 'stage 0))
+(define (qstage id n) (table-ref (qstages id) n #f))
+(define (qcur id) (qstage id (qstage-num id)))
 
-(define *stage* (quest-field 'start 10))  ; current stage number
-(define *delivered* 0)
-(define *histories* '())
+(define (qcur-field id key default)
+  (let ((s (qcur id)))
+    (if s (table-ref s key default) default)))
 
-;; What the objective counts is what the player actually carries.
+(define (qstate-sym id) (qcur-field id 'state 'not-offered))
+(define (qset-stage! id n) (qset! id 'stage n))
+
+(define (qobjectives id) (qfield id 'objectives (table)))
+(define (qobj id obj-id)
+  (if obj-id (table-ref (qobjectives id) obj-id #f) #f))
+
+(define (qobj-field id obj-id key default)
+  (let ((o (qobj id obj-id)))
+    (if o (table-ref o key default) default)))
+
+(define (obj-need id obj-id) (qobj-field id obj-id 'need 0))
+(define (obj-kind id obj-id) (qobj-field id obj-id 'kind 'count))
+(define (obj-type id obj-id) (qobj-field id obj-id 'type #f))
+(define (obj-text id obj-id) (qobj-field id obj-id 'text ""))
+
+(define (qprogress id obj-id)
+  (if obj-id
+      (table-ref (qget id 'progress (table)) obj-id 0)
+      0))
+
+(define (qset-progress! id obj-id n)
+  (if obj-id
+      (hash-table-set! (qget id 'progress (table)) obj-id n)))
+
+(define (quest-for-npc npc)
+  (let loop ((ids (quest-ids)))
+    (cond ((null? ids) #f)
+          ((eq? (qfield (car ids) 'giver 'nobody) npc) (car ids))
+          (else (loop (cdr ids))))))
+
+;; ---- quest text -------------------------------------------------------------
+
+;; Interpolate {delivered} {carried} {need} against the stage's primary
+;; objective. The primary objective is what the NPC's "give" topic delivers.
+(define (interpolate id s)
+  (let* ((obj (qcur-field id 'objective #f))
+         (need (obj-need id obj))
+         (type (obj-type id obj))
+         (carried (if type (bag-count (string->symbol type)) 0)))
+    (string-fill s
+      (list (cons "{delivered}" (number->string (qprogress id obj)))
+            (cons "{carried}" (number->string carried))
+            (cons "{need}" (number->string need))))))
+
+(define (qtext id)
+  (interpolate id (or (qcur-field id 'quest-text "") "")))
+
+;; What the stage's objective tracks right now, used by topic menus and prompts.
+(define (qobjective-carried id)
+  (let ((type (obj-type id (qcur-field id 'objective #f))))
+    (if type (bag-count (string->symbol type)) 0)))
+
+;; The HUD still gets a single string. Live quests are joined in data order;
+;; completed ones drop out so the line makes room for the next objective.
+(define (quest-text)
+  (let loop ((ids (quest-ids)) (parts '()))
+    (cond ((null? ids)
+           (if (null? parts) "任务：暂无（在村里走走看看）"
+               (string-join (reverse parts) "  ")))
+          ((eq? (qstate-sym (car ids)) 'completed) (loop (cdr ids) parts))
+          (else (loop (cdr ids) (cons (qtext (car ids)) parts))))))
+
+;; Legacy HUD field: ore picked up but not handed in.
 (define (ore-carried)
   (bag-count 'item/material/ore))
 
-;; The state symbol comes from the stage's own data, so new stages need no
-;; mapping table in code.
-(define (stage->state n)
-  (let ((stage (table-ref (quest-stages) n)))
-    (if stage (table-ref stage 'state 'not-offered) 'not-offered)))
+(define (qreason id key)
+  (table-ref (qfield id 'reasons (table)) key ""))
 
-(define *quest-state* (stage->state *stage*))
+(define (qhint id status)
+  (table-ref (qfield id 'hints (table)) status ""))
 
-(define (set-stage! n)
-  (set! *stage* n)
-  (set! *quest-state* (stage->state n)))
+;; ---- topic menus ------------------------------------------------------------
 
-;; Back to the quest's start, as if the game just booted. Used by game:reload
-;; after the data files have been re-read; game:reload empties the bag right
-;; after, so the whole run starts from the same state.
-(define (reset-quest!)
-  (set-stage! (quest-field 'start 10))
-  (set! *delivered* 0)
-  (set! *histories* '()))
+;; The accepted stage has separate menus for "carrying" and "empty", so the
+;; give entry only shows when there is something to hand in.
+(define (qtopics id)
+  (let ((key (cond ((not (eq? (qstate-sym id) 'accepted)) 'topics)
+                   ((> (qobjective-carried id) 0) 'topics-carry)
+                   (else 'topics-empty))))
+    (table-ref (qcur id) key #f)))
 
-;; ---- history (unchanged) -----------------------------------------------------
+;; ---- history ----------------------------------------------------------------
 
-(define (hist-add npc speaker text)
-  (let ((old (or (alist-get *histories* npc) '())))
-    (let ((next (cons (cons speaker text) old)))
-      (set! *histories*
-        (alist-put *histories* npc
-          (if (> (length next) 12)
-              (reverse (take-n (reverse next) 12))
-              next))))))
+(define (hist-add id npc speaker text)
+  (let ((old (or (qget id 'histories '()) '())))
+    (let ((prev (or (alist-get old npc) '()))
+          (next (cons (cons speaker text) '())))
+      (let ((merged (cons (car next) prev)))
+        (qset! id 'histories
+          (alist-put old npc
+            (if (> (length merged) 12)
+                (reverse (take-n (reverse merged) 12))
+                merged)))))))
 
-(define (hist-recent npc n)
-  (let* ((h (or (alist-get *histories* npc) '()))
+(define (hist-recent id npc n)
+  (let* ((h (or (alist-get (qget id 'histories '()) npc) '()))
          (recent (reverse (take-n h n))))
     (cond ((null? recent) "")
           (else (apply string-append
                         (map (lambda (p) (string-append (car p) ": " (cdr p) ". "))
                              recent))))))
 
-;; ---- quest text --------------------------------------------------------------
+;; ---- rewards ----------------------------------------------------------------
 
-;; Interpolate {delivered} {carried} {need} placeholders in a stage's
-;; quest-text, using the active objective's need.
-(define (interpolate-quest-text s)
-  (let* ((stage (current-stage))
-         (obj-id (table-ref stage 'objective))
-         (need (objective-need obj-id)))
-    (string-replace-all
-      (string-replace-all
-        (string-replace-all s "{delivered}" (number->string *delivered*))
-        "{carried}" (number->string (ore-carried)))
-      "{need}" (number->string need))))
+(define (grant-one-item! entry)
+  (let ((type (table-ref entry 'type #f))
+        (count (table-ref entry 'count 1)))
+    (if type (bag-add! (string->symbol type) count))))
 
-(define (quest-text)
-  (let ((stage (current-stage)))
-    (interpolate-quest-text (or (table-ref stage 'quest-text) ""))))
+;; `items` is either one (type count) table or a list of them. A hash table is
+;; not a pair, so `pair?` is enough to tell the two shapes apart.
+(define (grant-items! items)
+  (cond ((not items) #f)
+        ((pair? items)
+         (let loop ((xs items))
+           (if (null? xs) #f
+               (begin (grant-one-item! (car xs)) (loop (cdr xs))))))
+        (else (grant-one-item! items))))
 
-;; ---- intent application ------------------------------------------------------
+;; ---- stage transitions ------------------------------------------------------
 
-;; Apply stage-entry effects: take items from the bag, grant rewards.
-(define (apply-stage-effects! stage)
-  (let ((take (table-ref stage 'take)))
-    (when take
-      (let ((n (min (ore-carried) (table-ref take 'count 0))))
-        (bag-remove! 'item/material/ore n)
-        (set! *delivered* (+ *delivered* n)))))
-  ;; The reward is still recorded only: granting items and xp is the reward
-  ;; step of the quest phase, not the bag's.
-  (let ((reward (table-ref stage 'reward)))
-    (when reward #t)))
+(define (apply-stage-effects! id stage)
+  ;; A stage-entry `take` costs bag items. It is usually already paid by the
+  ;; give intent, so a second take on the completed stage is a safe no-op.
+  (let ((take (table-ref stage 'take #f)))
+    (if take
+        (let ((type (table-ref take 'type #f))
+              (n (table-ref take 'count 0)))
+          (if type (bag-remove! (string->symbol type) n)))))
+  (let ((reward (table-ref stage 'reward #f)))
+    (if reward
+        (begin
+          (set! *xp* (+ *xp* (table-ref reward 'xp 0)))
+          (grant-items! (table-ref reward 'items #f)))))
+  (if (table-ref stage 'complete #f)
+      (set! *quest-completions* (+ *quest-completions* 1))))
 
-;; Advance to a target stage, applying its entry effects. Returns reason.
-(define (advance-to! target-n)
-  (set-stage! target-n)
-  (let ((stage (current-stage)))
-    (apply-stage-effects! stage)
-    (or (table-ref stage 'say) "")))
+(define (advance-to! id target-n)
+  (qset-stage! id target-n)
+  (let ((stage (qcur id)))
+    (apply-stage-effects! id stage)
+    (cons 'accepted (or (table-ref stage 'say) ""))))
 
-;; intent application: the ONLY place quest state changes.
-;; returns (status . reason); status in (accepted rejected ignored)
-;; Reason text is quest data (data/quests.scm reasons), so the mechanism HUD
-;; stays script-agnostic.
-(define (apply-intent intent)
-  (let ((stage (current-stage)))
-    (cond ((eq? intent 'accept)
-           (cond ((eq? *quest-state* 'not-offered)
-                  (let ((reason (advance-to! (table-ref stage 'on-accept))))
-                    (cons 'accepted (if (string=? reason "") (quest-reason 'accept-ok) reason))))
-                 ((eq? *quest-state* 'accepted) (cons 'ignored (quest-reason 'accept-dup)))
-                 ((eq? *quest-state* 'completed) (cons 'rejected (quest-reason 'accept-done)))
+;; ---- intent application -----------------------------------------------------
+;; The only place quest state changes. Returns (status . reason);
+;; status ∈ accepted | rejected | ignored. Reason text is quest data, so the
+;; mechanism HUD stays script-agnostic.
+
+(define (apply-intent-for id intent)
+  (if (not (valid-quest? id))
+      (cons 'ignored "")
+      (let ((stage (qcur id))
+            (state (qstate-sym id)))
+        (cond
+          ((eq? intent 'accept)
+           (cond ((eq? state 'not-offered)
+                  (let ((reason (cdr (advance-to! id (table-ref stage 'on-accept)))))
+                    (cons 'accepted
+                          (if (string=? reason "") (qreason id 'accept-ok) reason))))
+                 ((eq? state 'accepted) (cons 'ignored (qreason id 'accept-dup)))
+                 ((eq? state 'completed) (cons 'rejected (qreason id 'accept-done)))
                  (else (cons 'ignored ""))))
+
           ((eq? intent 'give)
-           (cond ((eq? *quest-state* 'accepted)
-                  (cond ((<= (ore-carried) 0) (cons 'rejected (quest-reason 'give-empty)))
-                        (else
-                          (let* ((obj-id (table-ref stage 'objective))
-                                 (need (objective-need obj-id))
-                                 (remaining (- need *delivered*))
-                                 (n (min (ore-carried) remaining)))
-                            (bag-remove! 'item/material/ore n)
-                            (set! *delivered* (+ *delivered* n))
-                            (if (>= *delivered* need)
-                                (let ((reason (advance-to! (table-ref stage 'on-give-complete))))
-                                  (cons 'accepted reason))
-                                (cons 'accepted
-                                  (string-fill (quest-reason 'give-partial)
-                                    (list (cons "{n}" (number->string n))
-                                          (cons "{delivered}" (number->string *delivered*))
-                                          (cons "{need}" (number->string need))))))))))
-                 ((eq? *quest-state* 'not-offered) (cons 'rejected (quest-reason 'give-not-accepted)))
-                 ((eq? *quest-state* 'completed)   (cons 'rejected (quest-reason 'give-done)))
+           (cond ((eq? state 'accepted)
+                  (let* ((obj (table-ref stage 'objective #f))
+                         (kind (if obj (obj-kind id obj) 'count))
+                         (need (obj-need id obj))
+                         (type (obj-type id obj))
+                         (carried (if type (bag-count (string->symbol type)) 0))
+                         (remaining (- need (qprogress id obj)))
+                         (n (min carried remaining)))
+                    (if (eq? kind 'count)
+                        (cond ((<= n 0) (cons 'rejected (qreason id 'give-empty)))
+                              (else
+                               (if type (bag-remove! (string->symbol type) n))
+                               (qset-progress! id obj (+ (qprogress id obj) n))
+                               (if (>= (qprogress id obj) need)
+                                   (advance-to! id (table-ref stage 'on-give-complete))
+                                   (cons 'accepted
+                                     (string-fill (qreason id 'give-partial)
+                                       (list (cons "{n}" (number->string n))
+                                             (cons "{delivered}" (number->string (qprogress id obj)))
+                                             (cons "{need}" (number->string need))))))))
+                        (cons 'rejected (qreason id 'give-empty)))))
+                 ((eq? state 'not-offered) (cons 'rejected (qreason id 'give-not-accepted)))
+                 ((eq? state 'completed) (cons 'rejected (qreason id 'give-done)))
                  (else (cons 'ignored ""))))
-          (else (cons 'ignored (quest-reason 'idle))))))
 
-(define (verdict-hint status)
-  (table-ref (quest-field 'hints (table)) status ""))
+          ;; chat / talk: advance a `talk` objective of the current stage.
+          ((eq? intent 'talk)
+           (let* ((obj (table-ref stage 'objective #f))
+                  (kind (if obj (obj-kind id obj) 'count))
+                  (need (obj-need id obj)))
+             (if (and obj (eq? kind 'talk) (eq? state 'accepted)
+                      (< (qprogress id obj) need))
+                 (begin
+                   (qset-progress! id obj (+ (qprogress id obj) 1))
+                   (if (>= (qprogress id obj) need)
+                       (advance-to! id (table-ref stage 'on-talk-complete))
+                       (cons 'accepted (qreason id 'talk-progress))))
+                 (cons 'ignored ""))))
+
+          ;; target: advance a `target` objective when Godot reports an
+          ;; interaction with the named world object.
+          ((eq? intent 'target)
+           (let* ((obj (table-ref stage 'objective #f))
+                  (kind (if obj (obj-kind id obj) 'count))
+                  (need (obj-need id obj))
+                  (want (qobj-field id obj 'target #f)))
+             (if (and want (eq? kind 'target) (eq? state 'accepted)
+                      (< (qprogress id obj) need))
+                 (begin
+                   (qset-progress! id obj (+ (qprogress id obj) 1))
+                   (if (>= (qprogress id obj) need)
+                       (advance-to! id (table-ref stage 'on-target-complete))
+                       (cons 'accepted (qreason id 'target-progress))))
+                 (cons 'ignored ""))))
+
+          (else (cons 'ignored (qreason id 'idle)))))))
+
+;; One-argument compatibility form (the active quest is the first one).
+(define (apply-intent intent . maybe-id)
+  (apply-intent-for (if (null? maybe-id) (car (quest-ids)) (car maybe-id)) intent))
+
+;; ---- bridge entries ---------------------------------------------------------
+
+;; Godot reports an E interaction here; any quest tracking that target id gets
+;; its objective advanced. Returns #t when a quest actually moved.
+(define (game:quest-target target)
+  (let loop ((ids (quest-ids)) (fired 0))
+    (if (null? ids)
+        (> fired 0)
+        (let* ((id (car ids))
+               (obj (qcur-field id 'objective #f))
+               (want (qobj-field id obj 'target #f)))
+          (if (and want (string=? want target))
+              (let ((v (apply-intent-for id 'target)))
+                (loop (cdr ids)
+                      (+ fired (if (eq? (car v) 'accepted) 1 0))))
+              (loop (cdr ids) fired))))))
+
+;; (xp completions rows) where each row is
+;;   (id title state description ((objective-text done need) ...))
+(define (objective-progress-row id obj-id)
+  (list (obj-text id obj-id) (qprogress id obj-id) (obj-need id obj-id)))
+
+(define (objective-rows id)
+  (let loop ((ids (qfield id 'objective-order '())) (rows '()))
+    (if (null? ids)
+        (reverse rows)
+        (loop (cdr ids) (cons (objective-progress-row id (car ids)) rows)))))
+
+(define (game:quests)
+  (list *xp*
+        *quest-completions*
+        (let loop ((ids (quest-ids)) (rows '()))
+          (if (null? ids)
+              (reverse rows)
+              (let* ((id (car ids))
+                     (def (quest-def id)))
+                (loop (cdr ids)
+                      (cons (list (symbol->string id)
+                                  (table-ref def 'title "")
+                                  (symbol->string (qstate-sym id))
+                                  (qtext id)
+                                  (objective-rows id))
+                            rows)))))))
+
+;; ---- reset ------------------------------------------------------------------
+
+(define (reset-quest!)
+  (set! *quests-state* '())
+  (set! *xp* 0)
+  (set! *quest-completions* 0))

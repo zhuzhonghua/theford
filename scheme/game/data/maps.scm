@@ -29,7 +29,8 @@
       (zone = "peaceful")
       (music = "village")
       (scene = "scenes/world.tscn")
-      (anchors = '("herb-garden" "inn" "inn-yard" "riverbank" "village-square"
+      (anchors = '("herb-garden" "apothecary-stand" "herb-1" "herb-2" "herb-3" "herb-4" "herb-5" "herb-6"
+                   "inn" "inn-yard" "riverbank" "village-square"
                    "smith-home" "apothecary-home" "innkeeper-home" "smithy-door"))
       (portals = (list
                    (table (id = 'to-smithy) (to = 'smithy)
@@ -40,7 +41,7 @@
       (zone = "peaceful")
       (music = "village")
       (scene = "scenes/smithy.tscn")
-      (anchors = '("door" "forge"))
+      (anchors = '("door" "forge" "smith-stand"))
       (portals = (list
                    (table (id = 'to-village) (to = 'village)
                           (at = "village:smithy-door") (label = "渡口村"))))

@@ -58,6 +58,9 @@ position = Vector2(104, 136)
 [node name="forge" type="Marker2D" parent="Anchors" unique_id=505774167]
 position = Vector2(56, 72)
 
+[node name="smith-stand" type="Marker2D" parent="Anchors"]
+position = Vector2(80, 80)
+
 [node name="Portals" type="Node2D" parent="." unique_id=1039148440]
 
 [node name="to-village" type="Marker2D" parent="Portals" unique_id=1643126880]

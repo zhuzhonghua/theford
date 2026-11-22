@@ -11,6 +11,7 @@
 [ext_resource type="Texture2D" path="res://assets/na/Ui/Arrow.png" id="12_portal_hint"]
 [ext_resource type="Texture2D" path="res://assets/na/Backgrounds/Tilesets/TilesetElement.png" id="13_sign"]
 [ext_resource type="PackedScene" path="res://scenes/slime.tscn" id="14_slime"]
+[ext_resource type="PackedScene" path="res://scenes/herb.tscn" id="15_herb"]
 
 [node name="World" type="Node2D" unique_id=1932246936]
 y_sort_enabled = true
@@ -2333,6 +2334,24 @@ position = Vector2(616, 120)
 [node name="Ore3" type="Sprite2D" parent="." unique_id=801032830 instance=ExtResource("3_xo05s")]
 position = Vector2(664, 360)
 
+[node name="Herb1" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(136, 160)
+
+[node name="Herb2" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(152, 184)
+
+[node name="Herb3" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(208, 144)
+
+[node name="Herb4" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(200, 136)
+
+[node name="Herb5" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(152, 224)
+
+[node name="Herb6" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
+position = Vector2(184, 208)
+
 [node name="Slime1" type="Sprite2D" parent="." instance=ExtResource("14_slime")]
 position = Vector2(272, 408)
 
@@ -2378,6 +2397,27 @@ position = Vector2(360, 216)
 
 [node name="herb-garden" type="Marker2D" parent="Anchors"]
 position = Vector2(168, 120)
+
+[node name="apothecary-stand" type="Marker2D" parent="Anchors"]
+position = Vector2(184, 128)
+
+[node name="herb-1" type="Marker2D" parent="Anchors"]
+position = Vector2(136, 160)
+
+[node name="herb-2" type="Marker2D" parent="Anchors"]
+position = Vector2(152, 184)
+
+[node name="herb-3" type="Marker2D" parent="Anchors"]
+position = Vector2(208, 144)
+
+[node name="herb-4" type="Marker2D" parent="Anchors"]
+position = Vector2(200, 136)
+
+[node name="herb-5" type="Marker2D" parent="Anchors"]
+position = Vector2(152, 224)
+
+[node name="herb-6" type="Marker2D" parent="Anchors"]
+position = Vector2(184, 208)
 
 [node name="inn" type="Marker2D" parent="Anchors"]
 position = Vector2(488, 280)

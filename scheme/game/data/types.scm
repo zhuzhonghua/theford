@@ -71,6 +71,20 @@
       (name = "Slime Gel")
       (tags = '("gelatinous"))
       (sprite = "item:gel"))
+    (item/material/herb
+      (name = "草药")
+      (tags = '("herb" "material:herb"))
+      (sprite = "item:herb"))
+    (item/food/meat
+      (name = "干粮")
+      (tags = '("food"))
+      (sprite = "item:meat"))
+    (item/weapon/iron-sword
+      (name = "铁剑")
+      (tags = '("weapon:sword"))
+      (sprite = "item:sword")
+      (props = (table
+                 (power = 4))))
     (fixture/tree
       (name = "树")
       (tags = '("plant" "tree" "flammable" "wooden" "solid"))

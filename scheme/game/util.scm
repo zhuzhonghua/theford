@@ -107,6 +107,12 @@
       (string-fill (string-replace-all template (caar subs) (cdar subs))
                    (cdr subs))))
 
+;; (string-join parts sep) — concatenate a list of strings with a separator.
+(define (string-join parts sep)
+  (cond ((null? parts) "")
+        ((null? (cdr parts)) (car parts))
+        (else (string-append (car parts) sep (string-join (cdr parts) sep)))))
+
 ;; ---- lists ------------------------------------------------------------------
 
 (define (take-n l k)

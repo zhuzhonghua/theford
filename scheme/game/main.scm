@@ -21,6 +21,8 @@
 ;;   game:debug-advance         (gm.scm) advance N minutes, returns game:status
 ;;   game:debug-set-weather     (gm.scm) pin/clear weather, returns game:status
 ;;   game:status                (here) quest text + ore carried + clock + weather
+;;   game:quests                (quest.scm) xp + completions + quest log rows
+;;   game:quest-target id       (quest.scm) E interaction advances a target objective
 ;;   game:people                (here) id + current anchor + activity per npc
 ;;   game:gm-plan text          (gm.scm) LLM turns free text into one GM command
 ;;   game:reload                (here) re-read data files, reset state
@@ -47,7 +49,7 @@
 ;;   data/maps.scm    map-level names: anchors, portals, zone, music, npc roster
 ;;   data/catalog.scm asset path mapping: characters, music, sfx, items
 ;;   data/dialogue.scm shared talk text: topic labels, utterances, prompt template
-;;   data/quests.scm  quest definitions: objectives + stages (smith-ore chain)
+;;   data/quests.scm  quest definitions: objectives + stages + rewards (two chains)
 ;;   data/people.scm  roster: names, personas, canned lines, schedules (see npcs.scm)
 ;;   data/rules.scm   rule table: host selector + condition tree + effect list
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
@@ -58,7 +60,7 @@
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
 ;;   gm.scm     optional debug module: deterministic clock/weather, NL->command
 ;;   npcs.scm   npc lookups (display/persona/lines/schedule) over data/people.scm
-;;   quest.scm  quest state machine, carried/delivered counts, history
+;;   quest.scm  multi-quest state machine, objectives, rewards/xp, history
 ;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
 ;;

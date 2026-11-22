@@ -33,10 +33,11 @@
     ;; music: key -> path
     (music = (table
                (village = "assets/na/Audio/Musics/4 - Village.ogg")))
-    ;; sfx: event key -> path relative to res://. Death is wired by Phase 7;
-    ;; the rest are ready for the audio phase.
+    ;; sfx: event key -> path relative to res://. Death and quest completion
+    ;; are wired in the shell; the rest are ready for the audio phase.
     (sfx = (table
              (gameover = "assets/na/Audio/Jingles/GameOver2.wav")
+             (success = "assets/na/Audio/Jingles/Success1.wav")
              (hit = "assets/na/Audio/Sounds/Hit & Impact/Hit1.wav")
              (kill = "assets/na/Audio/Sounds/Hit & Impact/Impact.wav")))
     ;; items: sprite key -> (path rect) for the bag panel. `rect` is
@@ -54,7 +55,14 @@
                  (rect = '(208 208 32 16)))
                (item:gel
                  (path = "assets/na/Backgrounds/Tilesets/TilesetHouse.png")
-                 (rect = '(336 224 16 16)))))))
+                 (rect = '(336 224 16 16)))
+               (item:herb
+                 (path = "assets/lsw/Items/herb.png"))
+               (item:meat
+                 (path = "assets/na/Items/Food/Meat.png"))
+               (item:sword
+                 (path = "assets/na/Backgrounds/Tilesets/TilesetElement.png")
+                 (rect = '(240 16 16 16)))))))
 
 ;; (catalog-section key) — the table for a top-level section, or #f.
 (define (catalog-section key)

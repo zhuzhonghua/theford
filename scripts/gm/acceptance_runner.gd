@@ -171,6 +171,92 @@ func _execute(step: Variant, id: int) -> String:
 			var seconds := float(step[1])
 			_current.text = "观察画面（%.1f 秒）" % seconds
 			await _pause(seconds)
+		"topic":
+			# Choose a dialogue topic the way a player clicks it: dialog.gd's
+			# own _choose() runs the same game:talk call and rebuilds the menu.
+			if step.size() < 2:
+				return "topic 缺少话题键"
+			if not main.dialog_ui.is_open:
+				return "对话面板没有打开"
+			_current.text = "选择话题：" + str(step[1])
+			main.dialog_ui._choose(str(step[1]))
+			await _pause(1.0)
+		"assert-quest":
+			if step.size() < 3:
+				return "assert-quest 需要 quest id 与状态"
+			var qid := str(step[1])
+			var want_state := str(step[2])
+			var qrows: Array = await _quest_rows()
+			var have_state := ""
+			for row in qrows:
+				if row is Array and row.size() >= 3 and str(row[0]) == qid:
+					have_state = str(row[2])
+			_current.text = "断言：任务 %s = %s" % [qid, want_state]
+			if have_state != want_state:
+				return "期望 %s，实际 %s" % [want_state, have_state]
+		"assert-quest-progress":
+			if step.size() < 4:
+				return "assert-quest-progress 需要 id、目标序号与完成数"
+			var qid2 := str(step[1])
+			var obj_index := int(step[2])
+			var want_done := int(step[3])
+			var want_need := int(step[4]) if step.size() >= 5 else -1
+			var have_done := -1
+			var have_need := -1
+			for row in await _quest_rows():
+				if row is Array and row.size() >= 5 and str(row[0]) == qid2:
+					var objs: Variant = row[4]
+					if objs is Array and obj_index < objs.size() \
+							and objs[obj_index] is Array and objs[obj_index].size() >= 3:
+						have_done = int(objs[obj_index][1])
+						have_need = int(objs[obj_index][2])
+			_current.text = "断言：%s 目标 %d = %d/%d" % [qid2, obj_index, want_done, want_need]
+			if have_done != want_done:
+				return "完成数期望 %d，实际 %d" % [want_done, have_done]
+			if want_need >= 0 and have_need != want_need:
+				return "需求数期望 %d，实际 %d" % [want_need, have_need]
+		"assert-xp":
+			if step.size() < 2:
+				return "assert-xp 缺少经验值"
+			var view: Variant = await Game.call_async("game:quests", [])
+			var have_xp := int(view[0]) if view is Array and view.size() >= 1 else -1
+			var want_xp := int(step[1])
+			_current.text = "断言：经验 %d" % want_xp
+			if have_xp != want_xp:
+				return "经验期望 %d，实际 %d" % [want_xp, have_xp]
+		"assert-quest-panel":
+			if step.size() < 2:
+				return "assert-quest-panel 需要 open|closed"
+			if main.quest_ui == null:
+				return "任务日志面板不可用"
+			var want_open := str(step[1]) == "open"
+			_current.text = "断言：任务日志%s" % ("打开" if want_open else "关闭")
+			if main.quest_ui.is_open != want_open:
+				return "期望%s，实际%s" % [
+						"打开" if want_open else "关闭",
+						"打开" if main.quest_ui.is_open else "关闭"]
+		"assert-quest-panel-state":
+			if step.size() < 3:
+				return "assert-quest-panel-state 需要 id 与状态"
+			if main.quest_ui == null or not main.quest_ui.is_open:
+				return "任务日志面板没有打开"
+			var qid3 := str(step[1])
+			var want3 := str(step[2])
+			var have3: String = str(main.quest_ui.state_for(qid3))
+			_current.text = "断言：日志 %s = %s" % [qid3, want3]
+			if have3 != want3:
+				return "期望 %s，实际 %s" % [want3, have3]
+		"assert-quest-panel-text":
+			if step.size() < 3:
+				return "assert-quest-panel-text 需要 id 与文本片段"
+			if main.quest_ui == null or not main.quest_ui.is_open:
+				return "任务日志面板没有打开"
+			var qid4 := str(step[1])
+			var needle := str(step[2])
+			var panel_text: String = str(main.quest_ui.text_for(qid4))
+			_current.text = "断言：日志 %s 含『%s』" % [qid4, needle]
+			if not panel_text.contains(needle):
+				return "日志没有显示『%s』：%s" % [needle, panel_text]
 		"assert-map":
 			if step.size() < 2:
 				return "assert-map 缺少地图名"
@@ -654,6 +740,14 @@ func _approach(eid: String) -> bool:
 		return false
 	_current.text = "走向 %s 旁边" % eid
 	return await main.walk_player_to(point, 10.0)
+
+## Quest log rows straight from Scheme; a fresh view avoids relying on the
+## snapshot's tick cadence during a paused-clock acceptance run.
+func _quest_rows() -> Array:
+	var view: Variant = await Game.call_async("game:quests", [])
+	if view is Array and view.size() >= 3 and view[2] is Array:
+		return view[2]
+	return []
 
 func _assert_near(node: Node2D, anchor: String, label: String) -> String:
 	var point: Variant = main.anchor_position(anchor)

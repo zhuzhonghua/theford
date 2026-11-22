@@ -19,7 +19,7 @@ const DAY_COLOR := Color(1.0, 0.98, 0.92)
 const PICKUP_REACH := 2 * TILE
 const PICKUP_RETRY_MS := 1000
 const PICKUP_TYPES := {"ore": "item/material/ore", "log": "item/material/log",
-		"gel": "item/material/gel"}
+		"gel": "item/material/gel", "herb": "item/material/herb"}
 ## A villager runs from a creature inside this radius (the reference uses a
 ## sight of four tiles; fleeing starts a little wider so it reads clearly).
 const FLEE_RADIUS := 56.0
@@ -48,6 +48,7 @@ const MechHud := preload("res://scripts/mech_hud.gd")
 const BagPanel := preload("res://scripts/bag_panel.gd")
 const ContainerPanel := preload("res://scripts/container_panel.gd")
 const GameOver := preload("res://scripts/game_over.gd")
+const QuestPanel := preload("res://scripts/quest_panel.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
@@ -55,6 +56,7 @@ var mech: MechHud = null
 var bag_ui: BagPanel = null
 var container_ui: ContainerPanel = null
 var game_over_ui: GameOver = null
+var quest_ui: QuestPanel = null
 var gm: Node = null
 var _sfx: AudioStreamPlayer = null
 var _restarting := false
@@ -66,6 +68,7 @@ var _weather_layer: CanvasLayer = null
 var _rain: GPUParticles2D = null
 var _fog: ColorRect = null
 var _last_weather := ""
+var _last_quest_completions := 0   # for the one-shot completion jingle
 var _astar := AStarGrid2D.new()
 var _anchors := {}       # anchor name -> world position (from Marker2D nodes)
 var _npc_state := {}     # npc id -> {anchor, activity, path, step}
@@ -108,6 +111,9 @@ func _ready() -> void:
 	game_over_ui = GameOver.new()
 	add_child(game_over_ui)
 	game_over_ui.setup(font, _restart_game)
+	quest_ui = QuestPanel.new()
+	add_child(quest_ui)
+	quest_ui.setup(font)
 	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
@@ -144,6 +150,7 @@ func _on_bridge_ready(_llm: bool) -> void:
 	Game.send("game:people")
 	Game.send("game:bag")
 	Game.send("game:hp")
+	Game.send("game:quests")
 	_check_anchors()
 	_maybe_autoplay_acceptance()
 
@@ -1080,6 +1087,7 @@ func hot_reload() -> void:
 	# Await the Scheme reset before re-registering: worker calls are queued in
 	# order, so the fresh scene rows land on top of the cleared registry.
 	await Game.reload_data()
+	Game.send("game:quests")
 	await _switch_map(map_id, "")
 	if is_instance_valid(player):
 		player.position = keep_pos
@@ -1162,7 +1170,7 @@ func _refresh_hud() -> void:
 	elif _verb_hint != "":
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
-		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
 	hud_label.text = "第 %d 天  %02d:%02d   天气：%s   ♥ %d/%d\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
@@ -1170,13 +1178,22 @@ func _refresh_hud() -> void:
 			str(WEATHER_NAMES.get(weather, weather)),
 			int(Game.snapshot.get("hp", 10)),
 			int(Game.snapshot.get("max_hp", 10)),
-			str(Game.snapshot.get("quest_text", "")),
+			str(Game.snapshot.get("quest_text", "")) + "   经验 " + str(int(Game.snapshot.get("xp", 0))),
 			_activity_line(),
 			_bag_line(),
 			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
 			hint]
 	_refresh_weather()
 	_check_game_over()
+	_check_quest_jingle()
+
+## A completion counter comes back with the quest log; play the success cue
+## only when it actually grows (reload resets it, which must not play a jingle).
+func _check_quest_jingle() -> void:
+	var n := int(Game.snapshot.get("quest_completions", 0))
+	if n > _last_quest_completions:
+		_play_sfx("success")
+	_last_quest_completions = n
 
 ## Scheme owns the death decision (game:hp carries a down flag). The shell just
 ## shows the screen once and freezes the world via the modal stack.
@@ -1368,6 +1385,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				bag_ui.open()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_J:
+			if not Modals.is_modal_open() and quest_ui != null:
+				quest_ui.open()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_F1:
 			if mech != null:
 				mech.toggle_visible()
@@ -1387,6 +1409,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var target_id := _nearest_interactable(player.position, 48.0)
 		if target_id != "":
 			_interact_entity(target_id)
+			# Quests may track a world target by its entity id; with no such
+			# objective Scheme's game:quest-target is a cheap no-op.
+			Game.send("game:quest-target", [target_id])
 		else:
 			var npc := _nearest_npc(player.position, 30.0)
 			if npc != null:
@@ -1406,6 +1431,9 @@ func _process(delta: float) -> void:
 		while _tick_accumulator >= tick_step:
 			_tick_accumulator -= tick_step
 			Game.send("game:tick")
+			# The quest log + xp share the tick cadence, so pickups, deliveries
+			# and rewards appear in the J panel and HUD within 0.1s.
+			Game.send("game:quests")
 		_people_accumulator += delta
 		while _people_accumulator >= PEOPLE_SECONDS:
 			_people_accumulator -= PEOPLE_SECONDS
@@ -1455,6 +1483,10 @@ func _try_pick(node: Node2D, type_id: String) -> void:
 	if not is_instance_valid(node):
 		return
 	if bool(ok):
+		# A herb now has a real sprite, so make the moment it vanishes readable
+		# too: the HUD hint says what was picked up instead of silently +1.
+		if node.is_in_group("herb"):
+			_log_line("采到一株草药（已放进背包）")
 		# queue_free waits for the end of the frame, so the in-flight mark stays
 		# on: the pickup loop must not take the same node twice.
 		node.queue_free()

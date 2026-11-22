@@ -37,13 +37,16 @@ const HELP := "GM 指令（F8 开关）:
   reload                    热重载（等同 F5，当前场景一起回到开局）
   bag                       开关背包面板（等同 I 键）
   bag open / bag close      打开或关闭背包面板
+  quest                     查看任务进度 / 开关任务日志（等同 J 键）
+  quest open / quest close  打开或关闭任务日志
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   equip axe                 把背包里的斧头装备到手上（影响 F 动词）
   unequip                   卸下手中工具（物品留在背包里）
   load portal               播放 SCM 验收脚本（Esc 中止/关闭 HUD）
   load fell-tree            验收：开箱拿斧 → 两下砍树 → 树桩 → 再生
   load equipment            验收：装备斧头 F 生效、卸下后 F 无效
-  load read-sign            验收：E 阅读村口木牌
+  load quests              验收：双任务并行 → J 日志 → xp/奖励
+   load read-sign            验收：E 阅读村口木牌
   load inventory-panel      验收：开箱拿斧 → I 开面板 → 入包即时刷新
   load reload-scene         验收：砍树留桩 → reload → 树与场景恢复、站位不变
   nl 让老王去酒馆           强制走 LLM 翻译
@@ -54,7 +57,7 @@ LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
-		"hp", "hurt", "heal", "restart", "slime", "nl"]
+		"hp", "hurt", "heal", "restart", "slime", "quest", "nl"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -63,6 +66,9 @@ const ITEM_ALIASES := {
 	"log": "item/material/log",
 	"stone": "item/material/stone",
 	"gel": "item/material/gel",
+	"herb": "item/material/herb",
+	"meat": "item/food/meat",
+	"sword": "item/weapon/iron-sword",
 	"axe": "item/tool/axe",
 }
 
@@ -121,6 +127,7 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"talk": return await _talk(rest)
 		"reload": return await _reload()
 		"bag": return _bag(rest)
+		"quest": return _quest(rest)
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
 		"unequip": return await _unequip()
@@ -341,6 +348,34 @@ func _bag(args: PackedStringArray) -> String:
 		_:
 			main.bag_ui.toggle()
 			return "背包面板：%s" % ("打开" if main.bag_ui.is_open else "关闭")
+
+## Quest log from the console: no args prints the live snapshot, open/close
+## drives the same modal panel the J key toggles.
+func _quest(args: PackedStringArray) -> String:
+	if main.quest_ui == null:
+		return "任务日志不可用"
+	var mode := args[0].to_lower() if args.size() >= 1 else "toggle"
+	match mode:
+		"open":
+			Modals.close_all()
+			main.quest_ui.open()
+			return "任务日志：打开"
+		"close":
+			main.quest_ui.close()
+			return "任务日志：关闭"
+	if not args.is_empty():
+		main.quest_ui.toggle()
+		return "任务日志：%s" % ("打开" if main.quest_ui.is_open else "关闭")
+	var lines: PackedStringArray = []
+	lines.append("经验 %d" % int(Game.snapshot.get("xp", 0)))
+	for row in Game.snapshot.get("quests", []):
+		if row is Array and row.size() >= 5:
+			var objs: Array = []
+			for obj in row[4]:
+				if obj is Array and obj.size() >= 3:
+					objs.append("%s %d/%d" % [str(obj[0]), int(obj[1]), int(obj[2])])
+			lines.append("%s [%s] %s：%s" % [str(row[0]), str(row[2]), str(row[1]), ", ".join(objs)])
+	return "\n".join(lines) if lines.size() > 1 else "（还没有任务）"
 
 ## Dev-only item injection, so the panel's live refresh can be exercised
 ## without walking to a pickup. Goes through Scheme's bag-add! like every

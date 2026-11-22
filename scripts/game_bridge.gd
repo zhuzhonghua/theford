@@ -32,6 +32,9 @@ var booted := false
 var snapshot := {
 	"quest_text": "",
 	"carried": 0,
+	"xp": 0,             # shared player experience counter (game:quests)
+	"quest_completions": 0,  # increments on a quest completion, drives the jingle
+	"quests": [],       # [[id, title, state, text, [[objective, done, need], ...]], ...]
 	"day": 1,
 	"hour": 8,
 	"minute": 0,
@@ -212,6 +215,13 @@ func _absorb(fn: String, result: Variant) -> void:
 		"game:people":
 			if result is Array:
 				_write_people(result)
+		"game:quests":
+			# (xp completions rows) — the quest log reads only this cached view.
+			if result is Array and result.size() >= 3:
+				snapshot["xp"] = int(result[0])
+				snapshot["quest_completions"] = int(result[1])
+				snapshot["quests"] = result[2] if result[2] is Array else []
+				snapshot_changed.emit()
 		"game:bag":
 			if result is Array and result.size() >= 1:
 				snapshot["bag"] = result[0] if result[0] is Array else []
@@ -232,6 +242,11 @@ func _absorb(fn: String, result: Variant) -> void:
 				snapshot["max_hp"] = int(result[1])
 				snapshot["game_over"] = bool(result[2]) if result.size() >= 3 else false
 				snapshot_changed.emit()
+	# Anything that can move an objective refreshes the log on the next batch,
+	# even with the clock paused (GM `speed 0` in acceptance scripts).
+	if fn in ["game:take", "game:talk", "game:greet", "game:quest-target",
+			"game:debug-give"]:
+		send("game:quests")
 
 ## An open container view is (id name capacity slots-used rows); #f closes it.
 func _write_container(result: Variant) -> void:
