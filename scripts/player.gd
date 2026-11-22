@@ -28,16 +28,9 @@ func _ready() -> void:
 	vframes = 7
 
 func _physics_process(delta: float) -> void:
-	if main and main.dialog_ui and main.dialog_ui.is_open:
-		_animate(delta, false)
-		return
-	if main and main.gm and main.gm.is_open:
-		_animate(delta, false)
-		return
-	if main and main.bag_ui and main.bag_ui.is_open:
-		_animate(delta, false)
-		return
-	if main and main.container_ui and main.container_ui.is_open:
+	# One stack-wide check replaces a branch per panel: anything modal freezes
+	# movement, so a new panel needs no change here either.
+	if Modals.is_modal_open():
 		_animate(delta, false)
 		return
 	# Any focused text field owns the keyboard: typing w/a/s/d must never walk.

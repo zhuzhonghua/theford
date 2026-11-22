@@ -48,6 +48,7 @@ func setup(font: Font) -> void:
 func open() -> void:
 	is_open = true
 	visible = true
+	Modals.push(self)
 	# Ask for a fresh view: the snapshot is already current, but a pickup may
 	# have landed between the last refresh and this key press.
 	Game.send("game:bag")
@@ -56,6 +57,18 @@ func open() -> void:
 func close() -> void:
 	is_open = false
 	visible = false
+	Modals.pop(self)
+
+## Modality lives here instead of in main.gd: I toggles, Esc closes. The stack
+## hands us the key only while we are on top.
+func modal_input(event: InputEvent) -> bool:
+	if not is_open or not (event is InputEventKey) \
+			or not event.pressed or event.echo:
+		return false
+	if event.keycode == KEY_I or event.keycode == KEY_ESCAPE:
+		close()
+		return true
+	return false
 
 func toggle() -> void:
 	if is_open:

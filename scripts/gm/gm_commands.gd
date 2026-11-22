@@ -302,10 +302,8 @@ func _talk(args: PackedStringArray) -> String:
 	if npc == null:
 		return "未知 NPC：%s" % args[0]
 	main.player.position = npc.position + Vector2(20, 0)
-	if main.dialog_ui.is_open:
-		main.dialog_ui.close()
-	if main.container_ui != null and main.container_ui.is_open:
-		main._close_container()
+	# One stack-wide call: no need to know which panels might be open.
+	Modals.close_all()
 	await main.dialog_ui.open_npc(npc)
 	return "已打开 %s 的对话" % npc.display_name
 
@@ -323,6 +321,7 @@ func _bag(args: PackedStringArray) -> String:
 	var mode := args[0].to_lower() if args.size() >= 1 else "toggle"
 	match mode:
 		"open":
+			Modals.close_all()
 			main.bag_ui.open()
 			return "背包面板：打开"
 		"close":

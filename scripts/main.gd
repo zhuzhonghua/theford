@@ -96,6 +96,7 @@ func _ready() -> void:
 	add_child(container_ui)
 	container_ui.setup(font)
 	container_ui.close_requested.connect(_close_container)
+	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
 	_setup_audio()
@@ -362,9 +363,8 @@ func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
 func _update_verb_hint() -> void:
 	var hint := ""
 	if player != null and Game.booted:
-		if container_ui != null and container_ui.is_open:
-			hint = "E / Esc 关闭箱子"
-		else:
+		hint = Modals.verb_hint()
+		if hint == "":
 			var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
 			if tree[0] != null:
 				hint = "F 砍树" if str(Game.snapshot.get("held", "")) != "" else "F 需要斧头"
@@ -405,39 +405,54 @@ func _interact_entity(target_id: String) -> void:
 	var effects: Variant = await Game.call_async("game:handle", ["player", target_id])
 	_apply_effects(effects)
 
-## Execute a list of effect tuples returned by the rule engine. Each tuple is
-## ("kind" payload...) where kind is one of:
-##   "hit"       entity-id power hp   — impact cue + remaining hp line
-##   "transform" entity-id new-type   — visual swap of the same node
-##   "spawn"     type-str at-id       — new node near `at-id`
-##   "vfx"       entity-id fx-name    — visual effect (placeholder for Phase 5)
-##   "log"       text                 — transient HUD message line
-## Scheme already updated hp/type before returning the list; this only renders.
+## Bind each effect kind to the system that renders it. Adding an effect no
+## longer means editing a match in this file — the owning system registers its
+## handler, and the bus routes payloads to it.
+func _register_effect_handlers() -> void:
+	Effects.register("hit", _effect_hit)
+	Effects.register("transform", _effect_transform)
+	Effects.register("spawn", _effect_spawn)
+	Effects.register("vfx", _effect_vfx)
+	Effects.register("log", _effect_log)
+	Effects.register("container", _effect_container)
+
+## Execute a list of effect tuples returned by the rule engine. Scheme has
+## already updated its state; the registered handlers only render.
 func _apply_effects(effects: Variant) -> void:
-	if not (effects is Array) or effects.is_empty():
-		return
-	for eff in effects:
-		if not (eff is Array) or eff.size() < 2:
-			continue
-		var kind: String = str(eff[0])
-		match kind:
-			"hit":
-				_vfx_hit(str(eff[1]))
-				if eff.size() >= 4:
-					_log_line("受到 %d 点伤害，剩余 %d" % [
-							int(eff[2]), int(eff[3])])
-			"transform":
-				_transform_entity(str(eff[1]), str(eff[2]))
-			"spawn":
-				_spawn_entity(str(eff[1]), str(eff[2]))
-			"vfx":
-				_vfx_play(str(eff[1]), str(eff[2]))
-			"log":
-				_log_line(str(eff[1]))
-			"container":
-				_apply_container_effect(str(eff[1]), str(eff[2]))
-	# Chest contents / held-tool hints live in Scheme; ask for a fresh view.
+	Effects.dispatch(effects, _after_effects)
+
+## Shared post-effect refresh: held-tool hints and bag rows live in Scheme.
+func _after_effects() -> void:
 	Game.send("game:bag")
+
+## --- effect adapters: (payload args) -> the existing render helpers -----------
+
+func _effect_hit(args: Array) -> void:
+	if args.is_empty():
+		return
+	_vfx_hit(str(args[0]))
+	if args.size() >= 3:
+		_log_line("受到 %d 点伤害，剩余 %d" % [int(args[1]), int(args[2])])
+
+func _effect_transform(args: Array) -> void:
+	if args.size() >= 2:
+		_transform_entity(str(args[0]), str(args[1]))
+
+func _effect_spawn(args: Array) -> void:
+	if args.size() >= 2:
+		_spawn_entity(str(args[0]), str(args[1]))
+
+func _effect_vfx(args: Array) -> void:
+	if args.size() >= 2:
+		_vfx_play(str(args[0]), str(args[1]))
+
+func _effect_log(args: Array) -> void:
+	if not args.is_empty():
+		_log_line(str(args[0]))
+
+func _effect_container(args: Array) -> void:
+	if args.size() >= 2:
+		_apply_container_effect(str(args[0]), str(args[1]))
 
 ## `open` effect from the rule engine: show or hide the container panel. The
 ## container's `open` prop is already set/cleared in Scheme.
@@ -820,10 +835,7 @@ func _move_npcs(delta: float) -> void:
 ## (dormant); on the new map each villager is placed at its schedule anchor.
 
 func _enter_portal(portal_id: String) -> void:
-	if dialog_ui.is_open:
-		dialog_ui.close()
-	if container_ui != null and container_ui.is_open:
-		container_ui.close()
+	Modals.close_all()
 	var result: Variant = await Game.call_async("game:enter-portal", [portal_id])
 	if not (result is Array and result.size() >= 2):
 		push_warning("[portal] bad reply for " + portal_id)
@@ -843,8 +855,7 @@ func _enter_portal(portal_id: String) -> void:
 ## portals, nav grid, camera) and re-seeds NPC positions from the schedule.
 func _switch_map(map_id: String, at: String) -> void:
 	_current_map_id = map_id
-	if container_ui != null and container_ui.is_open:
-		container_ui.close()
+	Modals.close_all()
 	var scene_path: String = _scene_path_cache.get(map_id, "")
 	if scene_path == "":
 		scene_path = str(await Game.call_async("game:map-scene", [map_id]))
@@ -889,10 +900,7 @@ func hot_reload() -> void:
 	_reloading = true
 	var keep_pos: Vector2 = player.position if is_instance_valid(player) else Vector2.ZERO
 	var map_id := _current_map_id
-	if dialog_ui.is_open:
-		dialog_ui.close()
-	if container_ui != null and container_ui.is_open:
-		container_ui.close()
+	Modals.close_all()
 	# Await the Scheme reset before re-registering: worker calls are queued in
 	# order, so the fresh scene rows land on top of the cleared registry.
 	await Game.reload_data()
@@ -1125,37 +1133,28 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F8:
 			if gm != null:
-				if bag_ui != null and not gm.is_open:
-					bag_ui.close()
-				if container_ui != null and not gm.is_open:
-					_close_container()
-				gm.toggle()
+				# _input runs before gui_input so the key still works with the
+				# console's LineEdit focused. Closing gets one stack-wide call.
+				if gm.is_open:
+					gm.toggle()
+				else:
+					Modals.close_all()
+					gm.toggle()
 				get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if gm != null and gm.is_open:
+	# Open panels own their keys, top of the stack first. A new panel only has
+	# to push itself and implement modal_input() — there is no branch to add
+	# here, and no close call to add to travel/reload below.
+	if Modals.handle_input(event):
+		get_viewport().set_input_as_handled()
 		return
-	# The container panel is modal: E / Esc close it, nothing else reaches the
-	# world while both sides are on screen.
-	if container_ui != null and container_ui.is_open:
-		if event is InputEventKey and event.pressed and not event.echo \
-				and (event.keycode == KEY_ESCAPE or event.keycode == KEY_E):
-			_close_container()
-			get_viewport().set_input_as_handled()
-		return
+	# System hotkeys stay global; world verbs only when no panel is up.
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_I:
-			# The bag is a modal overlay: opening it while a conversation is up
-			# would stack two panels, so the dialog wins until it is closed.
-			if not dialog_ui.is_open and bag_ui != null:
-				bag_ui.toggle()
+			if not Modals.is_modal_open() and bag_ui != null:
+				bag_ui.open()
 			get_viewport().set_input_as_handled()
-			return
-		if bag_ui != null and bag_ui.is_open:
-			# While the bag is up, only I (above) and Esc act on the world.
-			if event.keycode == KEY_ESCAPE:
-				bag_ui.close()
-				get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F1:
 			if mech != null:
@@ -1164,15 +1163,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode == KEY_F5:
 			# Fire-and-forget: state, scene and HUD refresh when the reply lands.
-			# An open dialog holds stale menus, so hot_reload closes it.
 			hot_reload()
 			get_viewport().set_input_as_handled()
 			return
-		if event.keycode == KEY_F and not dialog_ui.is_open:
+		if event.keycode == KEY_F and not Modals.is_modal_open():
 			_fire_use_action()
 			get_viewport().set_input_as_handled()
 			return
-	if event.is_action_pressed("interact") and not dialog_ui.is_open:
+	if event.is_action_pressed("interact") and not Modals.is_modal_open():
 		# Signs and chests take the active verb; villagers take dialogue.
 		var target_id := _nearest_interactable(player.position, 48.0)
 		if target_id != "":

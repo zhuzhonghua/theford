@@ -55,6 +55,7 @@ func open(id: String) -> void:
 	container_id = id
 	is_open = true
 	visible = true
+	Modals.push(self)
 	Game.send("game:bag")
 	_refresh()
 
@@ -63,6 +64,22 @@ func close() -> void:
 	visible = false
 	container_id = ""
 	_busy = false
+	Modals.pop(self)
+
+## The HUD asks the stack for a hint, so the panel owns its own wording.
+func verb_hint() -> String:
+	return "E / Esc 关闭箱子" if is_open else ""
+
+## E / Esc close the panel. Emitting close_requested lets main.gd clear the
+## container's `open` prop in Scheme — the panel itself only owns presentation.
+func modal_input(event: InputEvent) -> bool:
+	if not is_open or not (event is InputEventKey) \
+			or not event.pressed or event.echo:
+		return false
+	if event.keycode == KEY_E or event.keycode == KEY_ESCAPE:
+		close_requested.emit()
+		return true
+	return false
 
 ## ------------------------------------------------------- read-only for tests --
 

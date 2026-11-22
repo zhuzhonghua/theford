@@ -111,6 +111,10 @@ func toggle() -> void:
 	_release_movement()
 	_panel.visible = is_open
 	if is_open:
+		Modals.push(self)
+	else:
+		Modals.pop(self)
+	if is_open:
 		_edit.grab_focus()
 		_edit.caret_column = _edit.text.length()
 	else:
@@ -122,6 +126,12 @@ func toggle() -> void:
 func _release_movement() -> void:
 	for action in MOVE_ACTIONS:
 		Input.action_release(action)
+
+## The console sits on the modal stack so nothing reaches the world while it
+## is up. Its LineEdit handles its own Esc/F8; swallowing here just isolates
+## the world. (F8 is handled in main.gd's _input, before gui_input.)
+func modal_input(_event: InputEvent) -> bool:
+	return is_open
 
 func _on_edit_gui(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:

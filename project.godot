@@ -22,6 +22,8 @@ config/features=PackedStringArray("4.7")
 [autoload]
 
 Game="*res://scripts/game_bridge.gd"
+Modals="*res://scripts/modal_stack.gd"
+Effects="*res://scripts/effect_bus.gd"
 
 [display]
 

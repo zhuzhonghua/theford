@@ -49,6 +49,7 @@ func open_npc(npc: Node2D) -> void:
 	_text.text = ""
 	visible = true
 	is_open = true
+	Modals.push(self)
 	# Canned greeting (no LLM), then topics straight from Scheme data.
 	var greet: Variant = await Game.call_async("game:greet", [_npc_id])
 	if not is_open:
@@ -70,6 +71,7 @@ func open_npc(npc: Node2D) -> void:
 func close() -> void:
 	visible = false
 	is_open = false
+	Modals.pop(self)
 	_typing = false
 	_text.text = ""
 
@@ -183,21 +185,25 @@ func _run_typewriter(line: String) -> void:
 			break
 	_typing = false
 
-func _unhandled_input(event: InputEvent) -> void:
+## Called by the modal stack while this dialog is on top.
+func modal_input(event: InputEvent) -> bool:
 	if not is_open:
-		return
+		return false
 	if event.is_action_pressed("interact"):
 		if _typing:
 			_text.visible_ratio = 1.0
 		else:
 			close()
-	elif event is InputEventKey and event.pressed and not event.echo:
+		return true
+	if event is InputEventKey and event.pressed and not event.echo:
 		var idx: int = event.keycode - KEY_1 + 1
 		if idx >= 1 and idx <= 9:
 			var buttons := _menu_vbox.get_children()
 			if idx <= buttons.size():
 				var b: Button = buttons[idx - 1]
 				b.pressed.emit()
+			return true
+	return false
 
 func position_of_player() -> Vector2:
 	var main: Node = get_parent()
