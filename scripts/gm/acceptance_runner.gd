@@ -348,6 +348,29 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：背包 %s x%d" % [want_item, want_n]
 			if have != want_n:
 				return "期望 %s x%d，实际 x%d" % [want_item, want_n, have]
+		"assert-held":
+			# The equipped hand-slot tool: "" means nothing in hand, which is
+			# exactly the state where F cannot chop. Read from Scheme's view.
+			if step.size() < 2:
+				return "assert-held 缺少工具类型（空串表示未装备）"
+			var want_held := str(step[1])
+			var held_view: Variant = await Game.call_async("game:bag", [])
+			var have_held := ""
+			if held_view is Array and held_view.size() >= 2:
+				have_held = str(held_view[1])
+			_current.text = "断言：手持装备 = " + (want_held if want_held != "" else "（空）")
+			if have_held != want_held:
+				return "期望 %s，实际 %s" % [want_held, have_held]
+		"click-bag-item":
+			# Click a tool cell in the open bag panel to equip/unequip it. Goes
+			# through bag_panel.click_slot, the same path a mouse click uses.
+			if step.size() < 2:
+				return "click-bag-item 缺少物品类型"
+			if main.bag_ui == null or not main.bag_ui.is_open:
+				return "背包面板没有打开"
+			_current.text = "点击背包里的 " + str(step[1])
+			await main.bag_ui.click_slot(str(step[1]))
+			await _pause(0.4)
 		"assert-bag-slots":
 			if step.size() < 2:
 				return "assert-bag-slots 缺少槽位数"

@@ -156,7 +156,7 @@ func _refresh() -> void:
 	_bag_title.text = "背包    %d / %d 格" % [
 			int(Game.snapshot.get("bag_slots", bag_entries.size())),
 			int(Game.snapshot.get("bag_capacity", SLOT_COUNT))]
-	_held.text = ("手持：" + held_name) if held_name != "" else ""
+	_held.text = ("装备：" + held_name) if held_name != "" else ""
 	for i in range(SLOT_COUNT):
 		var bag_entry: Variant = bag_entries[i] if i < bag_entries.size() else null
 		var is_held := bag_entry != null and str(bag_entry[0]) == held

@@ -15,12 +15,26 @@
 
 (define *bag* '())  ; ((type-symbol . count) ...)
 
+;; The hand slot: the type of the equipped tool/weapon, or #f when empty.
+;; One slot only — the F verb uses whatever is in it, so equipping decides
+;; whether a tool can be swung. The bag still owns the item; this is just which
+;; carried piece is "in hand" (the equipment slot).
+(define *equipped* #f)
+
 ;; ---- slots ------------------------------------------------------------------
 
-;; A piece never stacks: a tool, a weapon, anything worn.
+;; A piece never stacks: a tool, a weapon, anything worn. Pieces are also the
+;; only things that can go in the hand slot. The type paths carry the hierarchy
+;; (item/tool/axe), so check is-a as well as the literal tags — a leaf type's
+;; own tags need not repeat its parent's ("tool").
 (define (piece? type)
-  (or (type-has-tag? type "tool")
+  (or (is-a type 'item/tool)
+      (is-a type 'item/weapon)
+      (type-has-tag? type "tool")
       (type-has-tag? type "weapon")))
+
+(define (equippable? type)
+  (piece? type))
 
 ;; Slots one row takes: pieces one each, anything else one per stack-max.
 (define (row-slots type n)
@@ -47,6 +61,9 @@
 ;; ---- mutations --------------------------------------------------------------
 
 ;; Add `n` of `type`; the new count, or #f when no slot is left for them.
+;; Picking a tool up only puts it in the bag — it is NOT equipped. Equipping is
+;; a deliberate act (game:equip / the bag panel's hand slot), so F does nothing
+;; until the player actually puts the tool in hand.
 (define (bag-add! type n)
   (if (bag-fits? type n)
       (let ((have (bag-count type)))
@@ -54,32 +71,47 @@
         (+ have n))
       #f))
 
-;; Remove up to `n` of `type`; the count left in the bag.
+;; Remove up to `n` of `type`; the count left in the bag. Taking the equipped
+;; piece out of the bag (a container transfer, a quest cost) empties the hand
+;; slot too — a tool that is nowhere in the bag cannot stay in hand.
 (define (bag-remove! type n)
   (let ((left (- (bag-count type) n)))
     (if (<= left 0)
         (begin
           (set! *bag* (alist-delete type *bag* eq?))
+          (if (eq? *equipped* type) (set! *equipped* #f))
           0)
         (begin
           (set! *bag* (alist-put *bag* type left))
           left))))
 
 (define (bag-empty!)
-  (set! *bag* '()))
+  (set! *bag* '())
+  (set! *equipped* #f))
 
-;; ---- held tool --------------------------------------------------------------
+;; ---- equipment / held tool --------------------------------------------------
 
-;; First carried type that has `tag`, or #f. The F verb only needs "a tool is
-;; carried"; picking which one is in hand is the equipment slot (6.4).
-(define (bag-find-tag tag)
-  (let loop ((types (map car *bag*)))
-    (cond ((null? types) #f)
-          ((type-has-tag? (car types) tag) (car types))
-          (else (loop (cdr types))))))
-
+;; The F verb reads the hand slot, not "any tool in the bag": equipping an axe
+;; is what makes a chop possible, and taking it off makes the same F do nothing
+;; (the no-tool rule simply never matches). The defensive bag-count check keeps
+;; the slot honest even if state is poked from a debug console.
 (define (held-tool)
-  (bag-find-tag "tool:axe"))
+  (if (and *equipped* (> (bag-count *equipped*) 0)) *equipped* #f))
+
+;; Put a carried piece into the hand slot. #f when the type is absent or cannot
+;; be equipped (materials, fixtures, unknown ids). Swapping replaces the old
+;; piece, which stays in the bag.
+(define (equip! type)
+  (if (and (> (bag-count type) 0) (equippable? type))
+      (begin (set! *equipped* type) #t)
+      #f))
+
+;; Empty the hand slot. The piece is not consumed — it stays in the bag.
+;; Returns the type formerly held (a symbol), or #f when the slot was empty.
+(define (unequip!)
+  (let ((old *equipped*))
+    (set! *equipped* #f)
+    old))
 
 ;; Rows for the HUD and the bag panel:
 ;;   ((type-string count display-name sprite-key slots) ...)
@@ -110,8 +142,20 @@
 (define (game:debug-give item . n)
   (bag-add! (string->symbol item) (if (null? n) 1 (car n))))
 
-;; View: (rows held-type-string held-name slots-used slots-max). Godot uses the
-;; held tool for the F verb hint and the slot numbers for the HUD bag line.
+;; (game:equip item-type) — put a carried tool/weapon in the hand slot.
+;; Returns #t on success, #f when the type is absent or not equippable.
+(define (game:equip item)
+  (equip! (string->symbol item)))
+
+;; (game:unequip) — empty the hand slot; the tool stays in the bag.
+;; Returns the type-string formerly held, or "" when the slot was empty.
+(define (game:unequip)
+  (let ((old (unequip!)))
+    (if old (symbol->string old) "")))
+
+;; View: (rows held-type-string held-name slots-used slots-max). `held` is the
+;; equipped hand-slot tool ("" when none) — the same value the F verb and its
+;; HUD hint use. Godot reads it for the bag panel's gold border and the hint.
 (define (game:bag)
   (let ((held (held-tool)))
     (list (bag-rows)

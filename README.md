@@ -44,11 +44,12 @@ Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tr
 - WASD / arrow keys to walk; E to talk to an NPC
 - Number keys 1–4 pick a topic (weather, work, village gossip)
 - Walk within two tiles of a dropped thing (ore, felled logs) and it flies into the bag; the bag is 30 slots, 999 of a kind per slot, tools one to a slot
-- **I** opens the bag panel: three rows of ten slots with item icons and counts; the held tool has a gold border and the grid refreshes on pickup
+- **I** opens the bag panel: three rows of ten slots with item icons and counts; the equipped tool has a gold border and the grid refreshes on pickup
+- Tools must be **equipped** to work: picking up an axe only puts it in the bag and F won't chop. Click the tool cell in the bag (or the visible "hand" slot at the top to unequip) — F chops with whatever is in the hand slot. GM also accepts `equip axe` / `unequip`
 - Blacksmith Lao Wang: accept the quest → collect 3 iron ore → hand them in → done
 - Chen Po and Manager Zhang: free conversation, generated locally and different every time
 - **F1** opens the mechanism HUD: topic → intent, Scheme verdict, line source (LLM / cache / script), model name, and prefill/decode throughput. Set `THEFORD_MECHANISM=0` to hide it.
-- **F8** opens the GM console: `time 11:00` jumps the clock, `speed 10` accelerates time, `weather rain` pins the weather, `npc smith inn-yard` overrides a schedule, `people` dumps state, `bag` toggles the bag panel, `give ore 3` injects items, `load inventory-panel` replays the bag acceptance. Type `help` for every command.
+- **F8** opens the GM console: `time 11:00` jumps the clock, `speed 10` accelerates time, `weather rain` pins the weather, `npc smith inn-yard` overrides a schedule, `people` dumps state, `bag` toggles the bag panel, `give ore 3` injects items, `equip axe` equips a tool, `load equipment` replays the equipment acceptance. Type `help` for every command.
 - Natural language works too: type `让老王去酒馆` or `把时间暂停` and the local model translates it into one deterministic command (`npc smith inn-yard drinking`, `speed 0`), which is then executed and shown in the log. Generation is grammar-constrained, so the model can only emit a valid command.
 - The GM tooling is a self-contained module: for a release build, delete `scripts/gm/` and `scheme/game/gm.scm`, then remove the `(require "game.gm")` line from `scheme/game/main.scm`. The game itself does not depend on it.
 

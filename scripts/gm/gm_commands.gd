@@ -38,8 +38,11 @@ const HELP := "GM 指令（F8 开关）:
   bag                       开关背包面板（等同 I 键）
   bag open / bag close      打开或关闭背包面板
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
+  equip axe                 把背包里的斧头装备到手上（影响 F 动词）
+  unequip                   卸下手中工具（物品留在背包里）
   load portal               播放 SCM 验收脚本（Esc 中止/关闭 HUD）
   load fell-tree            验收：开箱拿斧 → 两下砍树 → 树桩 → 再生
+  load equipment            验收：装备斧头 F 生效、卸下后 F 无效
   load read-sign            验收：E 阅读村口木牌
   load inventory-panel      验收：开箱拿斧 → I 开面板 → 入包即时刷新
   load reload-scene         验收：砍树留桩 → reload → 树与场景恢复、站位不变
@@ -50,7 +53,7 @@ const HELP := "GM 指令（F8 开关）:
 LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
-		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "nl"]
+		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip", "nl"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -118,6 +121,8 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"reload": return await _reload()
 		"bag": return _bag(rest)
 		"give": return await _give(rest)
+		"equip": return await _equip(rest)
+		"unequip": return await _unequip()
 	return "未知指令：%s（help 查看）" % cmd
 
 ## Free-form Chinese -> one command via the local model. Scheme builds the
@@ -347,3 +352,22 @@ func _give(args: PackedStringArray) -> String:
 	# The panel and HUD read the bridge snapshot, so ask for a fresh bag view.
 	Game.send("game:bag")
 	return "背包 ← %s x%d（该栈共 %d）" % [item, n, int(left)]
+
+## Equip a carried tool into the hand slot — the deterministic twin of clicking
+## a tool cell in the bag panel. Only pieces (tool/weapon) can be equipped; the
+## item stays in the bag, the slot just decides what F swings.
+func _equip(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "用法：equip <item-type>（如 equip axe）"
+	var item := str(ITEM_ALIASES.get(args[0].to_lower(), args[0]))
+	var ok: Variant = await Game.call_async("game:equip", [item])
+	Game.send("game:bag")
+	if not bool(ok):
+		return "无法装备 %s：背包里没有，或它不是工具" % item
+	return "已装备：" + item + "（F 现在可用）"
+
+func _unequip() -> String:
+	var old: Variant = await Game.call_async("game:unequip", [])
+	Game.send("game:bag")
+	var name := str(old) if old != null else ""
+	return ("已卸下：" + name + "（物品仍在背包）") if name != "" else "手上没有装备"

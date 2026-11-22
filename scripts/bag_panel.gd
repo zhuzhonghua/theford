@@ -11,7 +11,9 @@ extends CanvasLayer
 ## the item's catalog sprite and its count. A stack larger than one slot spills
 ## into the next cell, using the per-row slot count Scheme sends, so the panel
 ## and `bag-slots-used` always agree. Icon paths come from data/catalog.scm via
-## game:catalog-item; adding an item needs data only.
+## game:catalog-item; adding an item needs data only. Tool/weapon cells are clickable: a click
+## equips that piece into the hand slot (inventory.scm), or takes the equipped one off — the same
+## slot the F verb reads. The gold border and the "装备" label mirror Scheme's held-tool state.
 
 const COLUMNS := 10
 const SLOT_COUNT := 30  # keep in sync with inventory.scm bag-slots
@@ -24,6 +26,8 @@ var _font: Font
 var _root: Control
 var _title: Label
 var _held: Label
+var _hand_slot: Panel
+var _hand_icon: TextureRect
 var _grid: GridContainer
 var _slots: Array[Panel] = []
 var _icons: Array[TextureRect] = []
@@ -90,6 +94,54 @@ func slot_total(type_id: String) -> int:
 func filled_slots() -> int:
 	return _slot_rows.size()
 
+## A tool/weapon cell is clickable to equip. Mirrors `piece?` in inventory.scm:
+## pieces are the only things the hand slot accepts.
+func _is_equippable(type_id: String) -> bool:
+	return type_id.begins_with("item/tool") or type_id.begins_with("item/weapon")
+
+## Click a tool cell to equip it, or the equipped one to take it off. Both the
+## GUI click handler and the acceptance replay go through here, so a scripted
+## equip exercises the same panel path a player's mouse does.
+func click_slot(type_id: String) -> void:
+	if not _is_equippable(type_id):
+		return
+	# Make sure the hand-slot value we toggle against is current, not a cached
+	# one from before a GM command or a container transfer.
+	await Game.call_async("game:bag", [])
+	var held := str(Game.snapshot.get("held", ""))
+	if type_id == held:
+		await Game.call_async("game:unequip", [])
+	else:
+		await Game.call_async("game:equip", [type_id])
+	# The equip reply is a boolean, not a bag view: ask Scheme for the view on
+	# the same worker queue so the panel repaints from state, not a local guess.
+	await Game.call_async("game:bag", [])
+
+func _on_slot_input(event: InputEvent, index: int) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if index < 0 or index >= _slot_rows.size():
+		return
+	click_slot(str(_slot_rows[index][0]))
+	get_viewport().set_input_as_handled()
+
+## Clicking the visible hand slot takes the tool off — the same Scheme path as
+## clicking the equipped tool's cell in the grid.
+func _on_hand_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if str(Game.snapshot.get("held", "")) == "":
+		return
+	await Game.call_async("game:unequip", [])
+	Game.send("game:bag")
+	get_viewport().set_input_as_handled()
+
 ## Sprite keys the grid is showing without a texture: either still loading or
 ## the catalog path is wrong. Acceptance fails on a non-empty list, so a bad
 ## asset path cannot pass as "the grid looks fine".
@@ -116,10 +168,16 @@ func _refresh() -> void:
 			int(Game.snapshot.get("bag_capacity", SLOT_COUNT))]
 	var held := str(Game.snapshot.get("held", ""))
 	var held_name := ""
+	var held_sprite := ""
 	for row in Game.snapshot.get("bag", []):
 		if row is Array and row.size() >= 3 and str(row[0]) == held:
 			held_name = str(row[2])
-	_held.text = ("手持：" + held_name) if held_name != "" else ""
+			held_sprite = str(row[3]) if row.size() >= 4 else ""
+	_held.text = ("装备：【" + held_name + "】 · 点击卸下") if held_name != "" else "装备：空 · 点击工具装备"
+	# The hand slot is a real, visible box: it shows the equipped tool's icon
+	# (or nothing) and its gold/neutral border comes from the same held flag.
+	_hand_slot.add_theme_stylebox_override("panel", ItemSlots.slot_style(held != ""))
+	_hand_icon.texture = _icon_cache.texture_for(held_sprite, _on_icon_loaded) if held_sprite != "" else null
 	for i in range(SLOT_COUNT):
 		var entry: Variant = slots[i] if i < slots.size() else null
 		if entry == null:
@@ -134,7 +192,11 @@ func _refresh() -> void:
 		var sprite := str(entry[3])
 		# A lone piece needs no number; quantities start at two.
 		_counts[i].text = str(amount) if amount > 1 else ""
-		_slots[i].tooltip_text = "%s x%d" % [display, amount]
+		if _is_equippable(type_id):
+			_slots[i].tooltip_text = "%s x%d · %s" % [display, amount,
+					"点击卸下" if type_id == held else "点击装备到手上"]
+		else:
+			_slots[i].tooltip_text = "%s x%d" % [display, amount]
 		_slots[i].add_theme_stylebox_override("panel",
 				ItemSlots.slot_style(type_id == held))
 		_icons[i].texture = _icon_cache.texture_for(sprite, _on_icon_loaded)
@@ -195,6 +257,35 @@ func _build() -> void:
 	_title = _make_label(26, Color(0.28, 0.16, 0.08))
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_title)
+
+	# A visible hand/equipment slot. Clicking it unequips; clicking a tool cell
+	# in the grid below equips. The box is the same size as a grid cell so the
+	# icon scale and border match exactly what the F verb reads.
+	var hand_box := HBoxContainer.new()
+	hand_box.add_theme_constant_override("separation", 8)
+	head.add_child(hand_box)
+	var hand_cap := _make_label(17, Color(0.38, 0.27, 0.16))
+	hand_cap.text = "手："
+	hand_box.add_child(hand_cap)
+	_hand_slot = Panel.new()
+	_hand_slot.custom_minimum_size = Vector2(46, 46)
+	_hand_slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	_hand_slot.tooltip_text = "装备槽 · 点击卸下"
+	_hand_slot.gui_input.connect(_on_hand_input)
+	_hand_slot.add_theme_stylebox_override("panel", ItemSlots.slot_style(false))
+	hand_box.add_child(_hand_slot)
+	_hand_icon = TextureRect.new()
+	_hand_icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hand_icon.offset_left = 5.0
+	_hand_icon.offset_top = 5.0
+	_hand_icon.offset_right = -5.0
+	_hand_icon.offset_bottom = -5.0
+	_hand_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_hand_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_hand_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_hand_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hand_slot.add_child(_hand_icon)
+
 	_held = _make_label(20, Color(0.35, 0.24, 0.12))
 	_held.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	head.add_child(_held)
@@ -208,7 +299,8 @@ func _build() -> void:
 	for i in range(SLOT_COUNT):
 		var slot := Panel.new()
 		slot.custom_minimum_size = Vector2(58, 58)
-		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		slot.gui_input.connect(_on_slot_input.bind(i))
 		slot.add_theme_stylebox_override("panel", ItemSlots.slot_style(false))
 		_grid.add_child(slot)
 		_slots.append(slot)
@@ -245,7 +337,7 @@ func _build() -> void:
 		_counts.append(count)
 
 	var hint := _make_label(16, Color(0.38, 0.27, 0.16))
-	hint.text = "I 关闭   ·   三行十格，同类物品叠成一格"
+	hint.text = "点工具格装备 · 点手槽卸下（影响 F）   ·   I 关闭"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(hint)
 

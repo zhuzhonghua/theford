@@ -367,7 +367,8 @@ func _update_verb_hint() -> void:
 		if hint == "":
 			var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
 			if tree[0] != null:
-				hint = "F 砍树" if str(Game.snapshot.get("held", "")) != "" else "F 需要斧头"
+				var tool_in_hand := str(Game.snapshot.get("held", "")) != ""
+				hint = "F 砍树" if tool_in_hand else "F 需要装备斧头（I 装备）"
 			else:
 				var inter := _nearest_interactable(player.position, 48.0)
 				if inter != "":
@@ -1014,7 +1015,7 @@ func _bag_line() -> String:
 			int(Game.snapshot.get("bag_capacity", 30))]
 	line += "，".join(parts) if not parts.is_empty() else "空"
 	if held_name != "":
-		line += "   手持：" + held_name
+		line += "   装备：" + held_name
 	return line
 
 ## Compact schedule readout: "老王：打铁   陈婆：晒药   张掌柜：看店".

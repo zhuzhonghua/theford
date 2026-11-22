@@ -27,7 +27,9 @@
 ;;   game:register-entities     (entities.scm) replace the per-map entity registry
 ;;   game:use actor target      (rules.scm) F verb: tool on target, returns effects
 ;;   game:handle actor target   (rules.scm) E verb on a sign/chest, returns effects
-;;   game:bag                   (inventory.scm) bag rows + held tool
+;;   game:bag                   (inventory.scm) bag rows + equipped hand-slot tool
+;;   game:equip item-type       (inventory.scm) put a carried tool in the hand slot
+;;   game:unequip               (inventory.scm) empty the hand slot (tool stays in bag)
 ;;   game:container id          (containers.scm) open container view, or #f
 ;;   game:transfer id from item all  (containers.scm) move a stack to the other side
 ;;   game:close-container id    (containers.scm) dismiss the container panel
@@ -47,7 +49,7 @@
 ;;   data/rules.scm   rule table: host selector + condition tree + effect list
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   entities.scm runtime registry: id -> (type hp tags props); transforms keep props
-;;   inventory.scm item stacks: counts, slot capacity, held-tool lookup
+;;   inventory.scm item stacks: counts, slot capacity, hand equipment slot
 ;;   containers.scm container contents: slots, transfers, panel view
 ;;   rules.scm  event dispatch: specificity, condition tree, effect ops, tick stages
 ;;   llm.scm    optional scmllama plumbing, prompt output cleanup, streaming
