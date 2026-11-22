@@ -18,7 +18,12 @@ const DAY_COLOR := Color(1.0, 0.98, 0.92)
 ## What the player picks up by walking over it: group -> item type.
 const PICKUP_REACH := 2 * TILE
 const PICKUP_RETRY_MS := 1000
-const PICKUP_TYPES := {"ore": "item/material/ore", "log": "item/material/log"}
+const PICKUP_TYPES := {"ore": "item/material/ore", "log": "item/material/log",
+		"gel": "item/material/gel"}
+## A villager runs from a creature inside this radius (the reference uses a
+## sight of four tiles; fleeing starts a little wider so it reads clearly).
+const FLEE_RADIUS := 56.0
+const FLEE_SPEED := 62.0
 const WEATHER_NAMES := {
 	"sun": "晴", "cloud": "阴", "rain": "雨", "storm": "暴雨", "fog": "雾",
 }
@@ -32,7 +37,7 @@ const WEATHER_TINTS := {
 const ACTIVITY_NAMES := {
 	"smithing": "打铁", "herbs": "晒药", "innkeeping": "看店",
 	"lunch": "吃饭", "drinking": "歇脚", "strolling": "闲逛",
-	"sleep": "睡觉", "idle": "站着",
+	"sleep": "睡觉", "idle": "站着", "flee": "逃跑",
 }
 
 var map_w := 0
@@ -42,13 +47,17 @@ var blocked := {}        # Vector2i -> true
 const MechHud := preload("res://scripts/mech_hud.gd")
 const BagPanel := preload("res://scripts/bag_panel.gd")
 const ContainerPanel := preload("res://scripts/container_panel.gd")
+const GameOver := preload("res://scripts/game_over.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
 var mech: MechHud = null
 var bag_ui: BagPanel = null
 var container_ui: ContainerPanel = null
+var game_over_ui: GameOver = null
 var gm: Node = null
+var _sfx: AudioStreamPlayer = null
+var _restarting := false
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
 var _effects_accumulator := 0.0
@@ -96,6 +105,9 @@ func _ready() -> void:
 	add_child(container_ui)
 	container_ui.setup(font)
 	container_ui.close_requested.connect(_close_container)
+	game_over_ui = GameOver.new()
+	add_child(game_over_ui)
+	game_over_ui.setup(font, _restart_game)
 	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
@@ -108,6 +120,7 @@ func _ready() -> void:
 		_start_bgm()
 		Game.send("game:people")
 		Game.send("game:bag")
+		Game.send("game:hp")
 		_check_anchors()
 		_maybe_autoplay_acceptance()
 	else:
@@ -130,6 +143,7 @@ func _on_bridge_ready(_llm: bool) -> void:
 	_start_bgm()
 	Game.send("game:people")
 	Game.send("game:bag")
+	Game.send("game:hp")
 	_check_anchors()
 	_maybe_autoplay_acceptance()
 
@@ -152,6 +166,26 @@ func _setup_audio() -> void:
 	bgm.name = "BGM"
 	bgm.volume_db = -10.0
 	add_child(bgm)
+	# One-shot cues (death jingle, hits) share a second player. Bus routing and
+	# the rest of the cue table land in the audio phase; Phase 7 only needs the
+	# death jingle, keyed in catalog.scm like every other asset path.
+	_sfx = AudioStreamPlayer.new()
+	_sfx.name = "SFX"
+	_sfx.volume_db = -6.0
+	add_child(_sfx)
+
+## Play a catalogued sound effect once. Paths live in data/catalog.scm so the
+## asset can change without a GDScript edit.
+func _play_sfx(key: String) -> void:
+	if _sfx == null:
+		return
+	var path: Variant = await Game.call_async("game:catalog-sfx", [key])
+	if path == null or str(path) == "":
+		return
+	var stream: AudioStream = load("res://" + str(path))
+	if stream != null:
+		_sfx.stream = stream
+		_sfx.play()
 
 ## Kick off BGM for the starting map once the bridge is up.
 func _start_bgm() -> void:
@@ -306,6 +340,35 @@ func _register_scene_entities() -> void:
 			_entities[eid] = npc
 			_entity_types[eid] = "actor/person/villager"
 			rows.append([eid, "actor/person/villager", ["person"], []])
+	# The player is a real actor so a slime bite is just a strike aimed at an
+	# entity. entities.scm keeps its hp across map travel; a reload restores it.
+	if is_instance_valid(player):
+		_entities["player"] = player
+		_entity_types["player"] = "actor/person/player"
+		rows.append(["player", "actor/person/player", ["person", "player"], []])
+	# Creatures — authored in the scene with the slime sprite. Godot owns their
+	# bodies; Scheme gets hp/atk tags so the same rule path can hit and kill them.
+	var creature_idx: int = 0
+	for node in get_tree().get_nodes_in_group("creature"):
+		if not (node is Node2D):
+			continue
+		var eid := "creature:%s:%d" % [_current_map_id, creature_idx]
+		creature_idx += 1
+		_entities[eid] = node
+		_entity_types[eid] = "actor/creature/slime"
+		node.set("main", self)
+		node.set("creature_id", eid)
+		# Nudge a spawn that landed on a tree/water cell to the nearest open
+		# one, so a hand-placed sprite can never make the creature stuck.
+		var cell := _foot_cell(node.position)
+		if _astar.is_in_boundsv(cell) and _astar.is_point_solid(cell):
+			for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1),
+					Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1)]:
+				var near: Vector2i = cell + (off as Vector2i)
+				if _astar.is_in_boundsv(near) and not _astar.is_point_solid(near):
+					node.position = _cell_center(near)
+					break
+		rows.append([eid, "actor/creature/slime", ["slime", "faction:wild"], []])
 	if rows.size() == 0:
 		return
 	# Fire-and-forget: Scheme has its own registry, nothing to absorb.
@@ -357,6 +420,28 @@ func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
 			["fixture/sign", "fixture/container/chest"])
 	return str(hit[0]) if hit[0] != null else ""
 
+## Nearest live creature within `radius`, or null. Uses the creature group so
+## a despawned slime (freed at the end of the frame) is skipped safely.
+func _nearest_creature(pos: Vector2, radius: float) -> Node2D:
+	var best: Node2D = null
+	var best_d := radius
+	for node in get_tree().get_nodes_in_group("creature"):
+		if not is_instance_valid(node):
+			continue
+		var d: float = pos.distance_to(node.position)
+		if d < best_d:
+			best_d = d
+			best = node
+	return best
+
+## The registry id of a creature node, or "". Needed because F hands Scheme an
+## entity id, while the AI only knows its own node.
+func _creature_entity_id(node: Node2D) -> String:
+	for eid in _entities.keys():
+		if _entities[eid] == node:
+			return str(eid)
+	return ""
+
 ## HUD verb hint for whatever is in reach. Recomputed every frame and only
 ## repainted when it changes, so walking past a tree/sign updates the line
 ## without a snapshot round trip.
@@ -365,22 +450,26 @@ func _update_verb_hint() -> void:
 	if player != null and Game.booted:
 		hint = Modals.verb_hint()
 		if hint == "":
-			var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
-			if tree[0] != null:
-				var tool_in_hand := str(Game.snapshot.get("held", "")) != ""
-				hint = "F 砍树" if tool_in_hand else "F 需要装备斧头（I 装备）"
+			var tool_in_hand := str(Game.snapshot.get("held", "")) != ""
+			var creature := _nearest_creature(player.position, 40.0)
+			if creature != null:
+				hint = "F 攻击史莱姆" if tool_in_hand else "F 需要装备武器（I 装备）"
 			else:
-				var inter := _nearest_interactable(player.position, 48.0)
-				if inter != "":
-					var itype := str(_entity_types.get(inter, ""))
-					if itype == "fixture/sign":
-						hint = "E 阅读木牌"
-					elif itype == "fixture/container/chest":
-						hint = "E 打开箱子"
+				var tree: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
+				if tree[0] != null:
+					hint = "F 砍树" if tool_in_hand else "F 需要装备斧头（I 装备）"
 				else:
-					var npc := _nearest_npc(player.position, 30.0)
-					if npc != null:
-						hint = "E 交谈"
+					var inter := _nearest_interactable(player.position, 48.0)
+					if inter != "":
+						var itype := str(_entity_types.get(inter, ""))
+						if itype == "fixture/sign":
+							hint = "E 阅读木牌"
+						elif itype == "fixture/container/chest":
+							hint = "E 打开箱子"
+					else:
+						var npc := _nearest_npc(player.position, 30.0)
+						if npc != null:
+							hint = "E 交谈"
 	if hint != _verb_hint:
 		_verb_hint = hint
 		_refresh_hud()
@@ -391,13 +480,22 @@ func _update_verb_hint() -> void:
 func _fire_use_action() -> void:
 	if player == null:
 		return
-	var hit: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
-	var target_id: String = str(hit[0]) if hit[0] != null else ""
+	# A creature in melee range takes priority over a tree: in a fight F means
+	# "swing at the thing that is biting you". Otherwise the verb is unchanged.
+	var target_id := ""
+	var creature := _nearest_creature(player.position, 48.0)
+	if creature != null:
+		target_id = _creature_entity_id(creature)
+	if target_id == "":
+		var hit: Array = _nearest_of_types(player.position, 48.0, ["fixture/tree"])
+		target_id = str(hit[0]) if hit[0] != null else ""
 	if target_id == "":
 		return
 	last_used_id = target_id
 	var effects: Variant = await Game.call_async("game:use", ["player", target_id])
 	_apply_effects(effects)
+	# A blow may have killed the creature (spawning loot); refresh the bag view.
+	Game.send("game:bag")
 
 ## E helper: fire impulse/handle on a sign or chest. The rule decides whether
 ## that means reading or opening.
@@ -416,6 +514,7 @@ func _register_effect_handlers() -> void:
 	Effects.register("vfx", _effect_vfx)
 	Effects.register("log", _effect_log)
 	Effects.register("container", _effect_container)
+	Effects.register("despawn", _effect_despawn)
 
 ## Execute a list of effect tuples returned by the rule engine. Scheme has
 ## already updated its state; the registered handlers only render.
@@ -431,9 +530,16 @@ func _after_effects() -> void:
 func _effect_hit(args: Array) -> void:
 	if args.is_empty():
 		return
-	_vfx_hit(str(args[0]))
+	var id := str(args[0])
+	_vfx_hit(id)
 	if args.size() >= 3:
-		_log_line("受到 %d 点伤害，剩余 %d" % [int(args[1]), int(args[2])])
+		if id == "player":
+			_log_line("你受到 %d 点伤害，剩余 %d" % [int(args[1]), int(args[2])])
+		else:
+			_log_line("命中 %s：-%d（剩余 %d）" % [id, int(args[1]), int(args[2])])
+	# Player health lives in Scheme; pull it into the snapshot after any blow.
+	if id == "player":
+		Game.send("game:hp")
 
 func _effect_transform(args: Array) -> void:
 	if args.size() >= 2:
@@ -454,6 +560,20 @@ func _effect_log(args: Array) -> void:
 func _effect_container(args: Array) -> void:
 	if args.size() >= 2:
 		_apply_container_effect(str(args[0]), str(args[1]))
+
+## A defeated creature is gone from Scheme already; here we free its sprite and
+## drop it from the local registry so F and flee checks stop seeing a corpse.
+func _effect_despawn(args: Array) -> void:
+	if args.is_empty():
+		return
+	var eid := str(args[0])
+	var ref: Variant = _entities.get(eid, null)
+	if is_instance_valid(ref):
+		ref.queue_free()
+	_entities.erase(eid)
+	_entity_types.erase(eid)
+	if last_used_id == eid:
+		last_used_id = ""
 
 ## `open` effect from the rule engine: show or hide the container panel. The
 ## container's `open` prop is already set/cleared in Scheme.
@@ -551,6 +671,22 @@ func _spawn_entity(type_str: String, at_id: String) -> void:
 	var at_node: Variant = _entities.get(at_id, null)
 	var pos: Vector2 = at_node.position if is_instance_valid(at_node) \
 			else (player.position if player != null else Vector2.ZERO)
+	if type_str == "item/material/gel":
+		# The same 16x16 house-tileset cell the bag icon uses, dropped nearby.
+		var gel := Sprite2D.new()
+		gel.name = "Gel"
+		gel.texture = load("res://assets/na/Backgrounds/Tilesets/TilesetHouse.png")
+		gel.region_enabled = true
+		gel.region_rect = Rect2(336, 224, 16, 16)
+		gel.centered = false
+		gel.offset = Vector2(-8, -8)
+		gel.position = pos + Vector2(randf_range(-8.0, 8.0), randf_range(0.0, 6.0))
+		gel.add_to_group("gel")
+		if world != null:
+			world.add_child(gel)
+		else:
+			add_child(gel)
+		return
 	if type_str == "item/material/log":
 		# A log is the same cut-wood graphic, drawn smaller at the tree base.
 		var log := Sprite2D.new()
@@ -804,24 +940,48 @@ func _move_npcs(delta: float) -> void:
 		if state.is_empty():
 			continue
 		var activity := str(state.get("activity", "idle"))
-		var path: PackedVector2Array = state.get("path", PackedVector2Array())
-		var step: int = int(state.get("step", 0))
 		var talking: bool = dialog_ui.is_open and dialog_ui.current_npc_id() == npc.npc_id
+		var threat := _nearest_creature(npc.position, FLEE_RADIUS)
+		var fleeing: bool = threat != null and not talking
+		var path: PackedVector2Array
+		var step: int
+		var travel: float
+		if fleeing:
+			# A threat overrides the schedule path: run away until the creature
+			# is out of sight, then pick the daily route up where it left off.
+			if state.get("flee_path") == null or state.get("flee_target") != threat:
+				state["flee_path"] = _path_between(
+						_flee_point(npc.position, threat.position), npc.position, npc.npc_id)
+				state["flee_step"] = 0
+				state["flee_target"] = threat
+			path = state.get("flee_path", PackedVector2Array())
+			step = int(state.get("flee_step", 0))
+			travel = FLEE_SPEED * delta
+		else:
+			if state.has("flee_path"):
+				state.erase("flee_path")
+				state.erase("flee_step")
+				state.erase("flee_target")
+			path = state.get("path", PackedVector2Array())
+			step = int(state.get("step", 0))
+			travel = NPC_SPEED * delta
 		if step < path.size() and not talking:
 			var target := path[step]
 			var d: Vector2 = target - npc.position
-			var travel := NPC_SPEED * delta
 			if d.length() <= travel:
 				npc.position = target
 				step += 1
-				state["step"] = step
+				if fleeing:
+					state["flee_step"] = step
+				else:
+					state["step"] = step
 			else:
 				npc.position += d.normalized() * travel
 				npc.face_dir(d)
 			npc.set_walking(true)
 		else:
 			npc.set_walking(false)
-		var hide := step >= path.size() and activity == "sleep"
+		var hide := step >= path.size() and activity == "sleep" and not fleeing
 		if hide:
 			# Only vanish once actually home. A sleep anchor that is unknown or
 			# unreachable yields an empty path, and hiding immediately would make
@@ -829,6 +989,21 @@ func _move_npcs(delta: float) -> void:
 			var home: Variant = anchor_position(str(state.get("anchor", "")).get_slice(":", 1))
 			hide = home != null and npc.position.distance_to(home) < 12.0
 		npc.visible = not hide
+
+## A walkable point several tiles directly away from a threat. Falls back to
+## shorter hops when the ideal cell is a wall, water or a portal.
+func _flee_point(from_pos: Vector2, threat_pos: Vector2) -> Vector2:
+	var away: Vector2 = from_pos - threat_pos
+	if away.length_squared() < 0.001:
+		away = Vector2.RIGHT
+	away = away.normalized()
+	for dist in [64.0, 48.0, 32.0, 16.0]:
+		var p: Vector2 = from_pos + away * float(dist)
+		var cell := Vector2i(floori(p.x / TILE), floori(p.y / TILE))
+		if _astar.is_in_boundsv(cell) and not _astar.is_point_solid(cell) \
+				and not _is_portal_cell(cell):
+			return _cell_center(cell)
+	return from_pos
 
 ## -------------------------------------------------------------- map travel --
 ## Portals are walkable spots; stepping onto one asks Scheme where it leads and
@@ -908,6 +1083,9 @@ func hot_reload() -> void:
 	await _switch_map(map_id, "")
 	if is_instance_valid(player):
 		player.position = keep_pos
+	# The reload's hp reply lands while the registry is empty; read it again
+	# now that the fresh scene has registered a full-health player.
+	await Game.call_async("game:hp")
 	_refresh_hud()
 	_reloading = false
 
@@ -985,17 +1163,50 @@ func _refresh_hud() -> void:
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
 		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
-	hud_label.text = "第 %d 天  %02d:%02d   天气：%s\n%s\n%s\n%s   %s\n%s" % [
+	hud_label.text = "第 %d 天  %02d:%02d   天气：%s   ♥ %d/%d\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
 			int(Game.snapshot.get("minute", 0)),
 			str(WEATHER_NAMES.get(weather, weather)),
+			int(Game.snapshot.get("hp", 10)),
+			int(Game.snapshot.get("max_hp", 10)),
 			str(Game.snapshot.get("quest_text", "")),
 			_activity_line(),
 			_bag_line(),
 			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
 			hint]
 	_refresh_weather()
+	_check_game_over()
+
+## Scheme owns the death decision (game:hp carries a down flag). The shell just
+## shows the screen once and freezes the world via the modal stack.
+func _check_game_over() -> void:
+	if game_over_ui == null:
+		return
+	if bool(Game.snapshot.get("game_over", false)):
+		if not game_over_ui.is_open and not _restarting:
+			game_over_ui.open()
+			_play_sfx("gameover")
+	elif game_over_ui.is_open and not _restarting:
+		game_over_ui.close()
+
+## Death restarts from the authored start, not from wherever the body fell:
+## clear all state on the worker, rebuild the village and stand at the river.
+func _restart_game() -> void:
+	if _restarting:
+		return
+	_restarting = true
+	Modals.close_all()
+	if gm != null:
+		gm.reset_speed()
+	await Game.reload_data()
+	await _switch_map("village", "village:riverbank")
+	# The reload clears the entity registry before the new map re-registers the
+	# player, so an in-flight hp reply can still say "down". Read it again now
+	# that the player entity is back at full health before releasing the guard.
+	await Game.call_async("game:hp")
+	_refresh_hud()
+	_restarting = false
 
 ## Bag readout: slots used, every carried stack, and the tool in hand. The
 ## counts come from Scheme's bag view, not from a GDScript inventory copy.

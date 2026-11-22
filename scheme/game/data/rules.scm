@@ -61,4 +61,28 @@
     (fixture/chest-open
       (on = "impulse/handle")
       (host = (table (type = 'fixture/container/chest)))
-      (tree = '(do (open))))))
+      (tree = '(do (open))))
+
+    ;; ---- slime: a bite is a blow with the creature's atk as its power -----
+    ;; Godot decides adjacency and calls game:creature-bite; the power comes
+    ;; from the slime's type prop, so a stronger creature needs no rule edit.
+    (creature/slime-bite
+      (on = "impulse/bite")
+      (host = (table (type = 'actor/creature/slime)))
+      (tree = '(do (emit (impulse strike)
+                         (to target)
+                         (params (power power)))
+                   (log (text "史莱姆咬了你一口！")))))
+
+    ;; ---- slime death: gel drop, poof, then leave the world ---------------
+    ;; The same threshold/cross a felled tree uses; loot spawns at the host
+    ;; before despawn frees the node, so the magnet can pick it up.
+    (creature/slime-death
+      (on = "threshold/cross")
+      (host = (table (type = 'actor/creature/slime)))
+      (tree = '(if (param name "broken")
+                   (do (spawn (type item/material/gel) (at host) (count 1))
+                       (vfx (fx "poof"))
+                       (log (text "史莱姆化作一滩凝胶"))
+                       (despawn))
+                   inherit)))))

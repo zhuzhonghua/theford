@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/creature.gd" id="1_creature"]
+[ext_resource type="Texture2D" path="res://assets/na/Actor/Monster/Slime4/Slime4.png" id="2_slime"]
+
+[node name="Slime" type="Sprite2D"]
+texture = ExtResource("2_slime")
+hframes = 4
+vframes = 4
+script = ExtResource("1_creature")

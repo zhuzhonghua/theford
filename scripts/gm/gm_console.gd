@@ -38,6 +38,11 @@ func speed() -> float:
 func apply_overrides(rows: Array) -> Array:
 	return _commands.apply_overrides(rows) if _commands != null else rows
 
+## Death restart returns time to real speed just like the GM reload command.
+func reset_speed() -> void:
+	if _commands != null:
+		_commands.tick_rate = 1.0
+
 func execute(line: String) -> String:
 	return await _commands.execute(line) if _commands != null else ""
 

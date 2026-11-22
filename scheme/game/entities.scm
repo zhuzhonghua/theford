@@ -27,13 +27,21 @@
 ;; (key-string value) pairs. Godot sends the whole map at once, so the registry
 ;; is replaced: dormant maps do not keep stale nodes in the live world.
 (define (game:register-entities rows)
-  (set! *entities* '())
-  (for-each (lambda (row)
-              (entity-register! (string->symbol (car row))
-                                (string->symbol (cadr row))
-                                (caddr row)
-                                (pairs->alist (cadddr row))))
-            rows)
+  ;; The player is re-registered on every map load like every other scene
+  ;; actor, but its health is journey state: walking into the smithy must not
+  ;; heal a wound. Keep the old hp across the rebuild; `reset-entities!` (a hot
+  ;; reload / death restart) drops the registry entirely, so hp starts full.
+  (let ((had-player (entity-get 'player))
+        (old-player-hp (entity-hp 'player)))
+    (set! *entities* '())
+    (for-each (lambda (row)
+                (entity-register! (string->symbol (car row))
+                                  (string->symbol (cadr row))
+                                  (caddr row)
+                                  (pairs->alist (cadddr row))))
+              rows)
+    (when had-player
+      (entity-set-hp! 'player old-player-hp)))
   (length *entities*))
 
 (define (pairs->alist pairs)

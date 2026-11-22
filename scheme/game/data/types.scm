@@ -19,6 +19,15 @@
     (actor/person/villager
       (name = "villager")
       (tags = '("faction:folk")))
+    ;; The player is a real entity in the registry so a bite is just a strike
+    ;; whose target happens to be "player" — no special case in the rule engine.
+    ;; Its hp survives map travel (entities.scm) and resets on a hot reload.
+    (actor/person/player
+      (name = "你")
+      (tags = '("person" "player" "faction:folk"))
+      (props = (table
+                 (hp = 10)
+                 (maxHp = 10))))
     (actor/creature/slime
       (name = "slime")
       (tags = '("slime" "faction:wild"))

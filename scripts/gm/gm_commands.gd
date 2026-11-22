@@ -53,7 +53,8 @@ const HELP := "GM 指令（F8 开关）:
 LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
-		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip", "nl"]
+		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
+		"hp", "hurt", "heal", "restart", "slime", "nl"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -123,6 +124,11 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
 		"unequip": return await _unequip()
+		"hp": return await _hp()
+		"hurt": return await _hurt(rest)
+		"heal": return await _heal()
+		"restart": return await _restart()
+		"slime": return _move_slime(rest)
 	return "未知指令：%s（help 查看）" % cmd
 
 ## Free-form Chinese -> one command via the local model. Scheme builds the
@@ -371,3 +377,59 @@ func _unequip() -> String:
 	Game.send("game:bag")
 	var name := str(old) if old != null else ""
 	return ("已卸下：" + name + "（物品仍在背包）") if name != "" else "手上没有装备"
+
+## --- combat debug -----------------------------------------------------------
+## Health lives in Scheme's entity registry; these commands only ask for a view
+## or apply a blow through the same path a creature bite uses.
+
+func _hp() -> String:
+	var view: Variant = await Game.call_async("game:hp", [])
+	if not (view is Array and view.size() >= 2):
+		return "还没有生命值状态"
+	return "生命 ♥ %d/%d%s" % [int(view[0]), int(view[1]),
+			"（已倒下）" if bool(view[2]) else ""]
+
+func _hurt(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "用法：hurt <点数>"
+	var n := maxi(1, int(args[0]))
+	var effects: Variant = await Game.call_async("game:debug-hurt", [n])
+	main._apply_effects(effects)
+	Game.send("game:hp")
+	return "受到 %d 点伤害" % n
+
+func _heal() -> String:
+	var view: Variant = await Game.call_async("game:hp", [])
+	var max_hp := int(view[1]) if view is Array and view.size() >= 2 else 10
+	await Game.call_async("game:debug-heal", [])
+	Game.send("game:hp")
+	return "生命恢复至 %d/%d" % [max_hp, max_hp]
+
+func _restart() -> String:
+	await main._restart_game()
+	return "已从渡口重新开始"
+
+## Move a slime next to a named villager (and re-home it there). A deterministic
+## setup for the threat-flee acceptance — the same kind of shortcut as `tp` or
+## `time`; the villager still has to notice and run on its own.
+func _move_slime(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "用法：slime <npc-id>（把一只史莱姆引到村民旁）"
+	var npc: Node2D = main.npc_node(args[0])
+	if npc == null:
+		return "未知 NPC：" + args[0]
+	var foe: Node2D = null
+	var best := 99999.0
+	for node in main.get_tree().get_nodes_in_group("creature"):
+		if not is_instance_valid(node):
+			continue
+		var d: float = node.position.distance_to(npc.position)
+		if d < best:
+			best = d
+			foe = node
+	if foe == null:
+		return "当前地图没有史莱姆"
+	var spot := npc.position + Vector2(26.0, 8.0)
+	foe.position = spot
+	foe.set("home", spot)
+	return "史莱姆已引到 %s 身旁" % npc.display_name

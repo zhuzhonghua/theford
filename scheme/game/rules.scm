@@ -28,10 +28,12 @@
 ;;   (vfx (fx name))
 ;;   (log (text s))                   — s may be (prop role key)/(param key)
 ;;   (open)                           — host container toggles its open state
+;;   (despawn)                        — host dies: leave the registry (Godot frees its node)
 ;;
 ;; Effects are returned as plain data for Godot:
 ;;   ("hit" id power hp) ("transform" id type) ("spawn" type at-id)
 ;;   ("vfx" id fx) ("log" text) ("container" id "open"|"closed")
+;;   ("despawn" id)
 ;; Nothing here decides presentation; Godot renders the list.
 
 (require "game.util")
@@ -271,6 +273,7 @@
           ((eq? op 'vfx) (do-vfx args roles))
           ((eq? op 'log) (do-log args roles params))
           ((eq? op 'open) (do-open args roles))
+          ((eq? op 'despawn) (do-despawn args roles))
           (else
            (error (string-append "unknown effect op: "
                                  (symbol->string op)))))))
@@ -349,6 +352,15 @@
           (begin
             (entity-set-prop! host 'open #t)
             (push-effect "container" host "open"))))))
+
+;; A defeated creature leaves the registry; the shell frees its node on the
+;; effect. Loot is spawned by the same rule before/after this, so the drop
+;; survives even though the host is gone.
+(define (do-despawn args roles)
+  (let ((host (role-value roles 'host)))
+    (when host
+      (entity-destroy! host)
+      (push-effect "despawn" host))))
 
 ;; ---- effect tuples ---------------------------------------------------------
 

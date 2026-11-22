@@ -512,6 +512,89 @@ func _execute(step: Variant, id: int) -> String:
 			if click_error != "":
 				return click_error
 			await _pause(0.4)
+		"walk-to-creature":
+			# Approach the nearest slime without swinging — used to let it bite.
+			var approach_foe: Node2D = main._nearest_creature(main.player.position, 480.0)
+			if approach_foe == null:
+				return "附近没有史莱姆"
+			var approach_id: String = main._creature_entity_id(approach_foe)
+			if approach_id == "":
+				return "史莱姆没有注册到实体表"
+			_current.text = "走向史莱姆"
+			if not await _approach(approach_id):
+				return "走不到史莱姆：" + approach_id
+			await _pause(WALK_PAUSE)
+		"walk-attack":
+			# Find the nearest slime, walk to it like a player would, then swing.
+			var foe: Node2D = main._nearest_creature(main.player.position, 480.0)
+			if foe == null:
+				return "附近没有史莱姆"
+			var foe_id: String = main._creature_entity_id(foe)
+			if foe_id == "":
+				return "史莱姆没有注册到实体表：" + str(foe.name)
+			_current.text = "走向史莱姆并攻击"
+			if not await _approach(foe_id):
+				return "走不到史莱姆：" + foe_id
+			await main._fire_use_action()
+			await _pause(ACTION_PAUSE)
+		"attack":
+			# Swing at a slime already in reach (walk-attack handles approach).
+			var near_foe: Node2D = main._nearest_creature(main.player.position, 48.0)
+			if near_foe == null:
+				return "手边没有史莱姆"
+			_current.text = "F：攻击史莱姆"
+			await main._fire_use_action()
+			await _pause(ACTION_PAUSE)
+		"assert-hp":
+			if step.size() < 2:
+				return "assert-hp 缺少生命值"
+			var hp_view: Variant = await Game.call_async("game:hp", [])
+			var have_hp := int(hp_view[0]) if hp_view is Array and hp_view.size() >= 1 else -1
+			_current.text = "断言：生命 = " + str(step[1])
+			if have_hp != int(step[1]):
+				return "期望生命 %s，实际 %s" % [str(step[1]), str(have_hp)]
+		"assert-hp-at-most":
+			if step.size() < 2:
+				return "assert-hp-at-most 缺少上限"
+			var cap_view: Variant = await Game.call_async("game:hp", [])
+			var cap_have := int(cap_view[0]) if cap_view is Array and cap_view.size() >= 1 else -1
+			_current.text = "断言：生命 ≤ " + str(step[1])
+			if cap_have > int(step[1]):
+				return "生命 %d 高于上限 %s" % [cap_have, str(step[1])]
+		"assert-game-over":
+			if step.size() < 2:
+				return "assert-game-over 需要 open|closed"
+			if main.game_over_ui == null:
+				return "结束画面不可用"
+			var want_death := str(step[1]) == "open"
+			_current.text = "断言：结束画面%s" % ("出现" if want_death else "未出现")
+			if main.game_over_ui.is_open != want_death:
+				return "结束画面状态不符"
+		"assert-creature-count":
+			if step.size() < 2:
+				return "assert-creature-count 缺少数量"
+			var live := 0
+			for c in get_tree().get_nodes_in_group("creature"):
+				if is_instance_valid(c):
+					live += 1
+			_current.text = "断言：史莱姆数量 = " + str(step[1])
+			if live != int(step[1]):
+				return "期望 %s 只，实际 %d 只" % [str(step[1]), live]
+		"assert-npc-from-creature":
+			# Threat flee: the villager must end up at least `min` px away from
+			# the nearest live slime.
+			if step.size() < 3:
+				return "assert-npc-from-creature 需要 npc-id 与距离"
+			var flee_npc: Node2D = main.npc_node(str(step[1]))
+			if flee_npc == null:
+				return "找不到 NPC：" + str(step[1])
+			var flee_foe: Node2D = main._nearest_creature(flee_npc.position, 9999.0)
+			if flee_foe == null:
+				return "附近没有史莱姆"
+			var flee_d: float = flee_npc.position.distance_to(flee_foe.position)
+			_current.text = "断言：%s 距史莱姆 ≥ %s px" % [str(step[1]), str(step[2])]
+			if flee_d < float(step[2]):
+				return "距离只有 %.1f px" % flee_d
 		"assert-group-count":
 			if step.size() < 3:
 				return "assert-group-count 需要组名与数量"

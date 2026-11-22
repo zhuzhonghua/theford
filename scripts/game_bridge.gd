@@ -41,6 +41,9 @@ var snapshot := {
 	"bag_slots": 0,     # slots the carried stacks take
 	"bag_capacity": 30, # slots the bag has
 	"held": "",         # tool type-string in hand, or ""
+	"hp": 10,           # player health (from game:hp)
+	"max_hp": 10,
+	"game_over": false, # hp reached 0; the shell shows the death screen
 	"container": {},    # open container view: {id, name, capacity, slots, rows}
 	"model": "",
 	"llm_version": "",
@@ -221,6 +224,14 @@ func _absorb(fn: String, result: Variant) -> void:
 		"game:close-container":
 			snapshot["container"] = {}
 			snapshot_changed.emit()
+		"game:hp":
+			# (hp max-hp down?) — lives in Scheme's entity registry, mirrored
+			# here so the HUD hearts and the death check need no VM call.
+			if result is Array and result.size() >= 2:
+				snapshot["hp"] = int(result[0])
+				snapshot["max_hp"] = int(result[1])
+				snapshot["game_over"] = bool(result[2]) if result.size() >= 3 else false
+				snapshot_changed.emit()
 
 ## An open container view is (id name capacity slots-used rows); #f closes it.
 func _write_container(result: Variant) -> void:
@@ -332,8 +343,10 @@ func load_async(path: String) -> Variant:
 ## quest, talk caches and clock. Content edits take effect without restarting Godot.
 func reload_data() -> Variant:
 	var result: Variant = await call_async("game:reload", [])
-	# The reload empties the bag; the status reply does not carry it, so ask.
+	# The reload empties the bag and resets health; neither is in the status
+	# reply, so ask for both before the shell repaints.
 	send("game:bag")
+	send("game:hp")
 	return result
 
 func _push(msg: Dictionary) -> void:

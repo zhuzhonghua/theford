@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="11_kpybi"]
 [ext_resource type="Texture2D" path="res://assets/na/Ui/Arrow.png" id="12_portal_hint"]
 [ext_resource type="Texture2D" path="res://assets/na/Backgrounds/Tilesets/TilesetElement.png" id="13_sign"]
+[ext_resource type="PackedScene" path="res://scenes/slime.tscn" id="14_slime"]
 
 [node name="World" type="Node2D" unique_id=1932246936]
 y_sort_enabled = true
@@ -2331,6 +2332,12 @@ position = Vector2(616, 120)
 
 [node name="Ore3" type="Sprite2D" parent="." unique_id=801032830 instance=ExtResource("3_xo05s")]
 position = Vector2(664, 360)
+
+[node name="Slime1" type="Sprite2D" parent="." instance=ExtResource("14_slime")]
+position = Vector2(272, 408)
+
+[node name="Slime2" type="Sprite2D" parent="." instance=ExtResource("14_slime")]
+position = Vector2(560, 368)
 
 [node name="Smith" type="Sprite2D" parent="." unique_id=195877525 instance=ExtResource("6_lakw3")]
 position = Vector2(360, 200)

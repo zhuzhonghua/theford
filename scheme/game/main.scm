@@ -34,6 +34,9 @@
 ;;   game:transfer id from item all  (containers.scm) move a stack to the other side
 ;;   game:close-container id    (containers.scm) dismiss the container panel
 ;;   game:drain-effects         (rules.scm) effects queued by tick hooks
+;;   game:hp                    (combat.scm) player (hp max-hp down?) for hearts
+;;   game:creature-bite c t     (combat.scm) a creature bites a target via the rules
+;;   game:debug-hurt n          (combat.scm) deterministic damage (GM/acceptance)
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
 ;; the canned reply table, and the quest still completes end to end.
@@ -76,6 +79,7 @@
 (require "game.talk")
 (require "game.entities")
 (require "game.rules")
+(require "game.combat")
 (require "game.containers")
 (require "game.data.rules")
 ; Optional debug module (see gm.scm). Remove this line and the file to ship
