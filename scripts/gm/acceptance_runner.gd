@@ -24,6 +24,7 @@ var _run_id := 0
 var _pace := 1.0
 var _lines: Array[String] = []
 var _audio_backup := {}   # so a volume replay leaves the player's mix alone
+var _last_prompt := ""    # last prompt fetched by an assert-prompt-* step
 
 var _panel: ColorRect
 var _title: Label
@@ -824,6 +825,35 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：上一轮台词来源 = %s" % want_src
 			if have_src != want_src:
 				return "期望 %s，实际 %s" % [want_src, have_src if have_src != "" else "（还没有对话）"]
+		"assert-prompt-contains":
+			# Phase 10.5: the prompt is assembled on the logic thread. Fetch the
+			# exact string a turn would build, without running the model.
+			if step.size() < 4:
+				return "assert-prompt-contains 需要 npc、topic 与文本片段"
+			var prompt: Variant = await Game.call_async("game:debug-talk-prompt",
+					[str(step[1]), str(step[2])])
+			if not (prompt is String):
+				return "没有取到 prompt（%s）" % str(prompt)
+			_last_prompt = prompt
+			var want_frag := str(step[3])
+			_current.text = "断言：prompt 含「%s」" % want_frag
+			if not prompt.contains(want_frag):
+				return "prompt 里没有「%s」\n%s" % [want_frag, _prompt_context(prompt)]
+		"assert-prompt-changed":
+			# Same npc/topic, new clock or weather: the injected situation line
+			# must differ, otherwise a cached reply could never mention it.
+			if step.size() < 3:
+				return "assert-prompt-changed 需要 npc 与 topic"
+			var prompt2: Variant = await Game.call_async("game:debug-talk-prompt",
+					[str(step[1]), str(step[2])])
+			if not (prompt2 is String):
+				return "没有取到 prompt（%s）" % str(prompt2)
+			var before := _prompt_context(_last_prompt)
+			var after := _prompt_context(prompt2)
+			_last_prompt = prompt2
+			_current.text = "断言：情境行已变化\n%s → %s" % [before, after]
+			if before == "" or before == after:
+				return "情境行没有变化（%s）" % after
 		_:
 			return "未知操作：" + op
 	return ""
@@ -832,6 +862,16 @@ func _pause(seconds: float) -> void:
 	var wait := seconds * _pace
 	if wait > 0.0:
 		await get_tree().create_timer(wait).timeout
+
+## Pull the injected situation line out of a built prompt; keeps a failed
+## assertion readable instead of dumping the whole (long) LLM prompt.
+func _prompt_context(prompt: String) -> String:
+	var i := prompt.find("当前情境：")
+	if i < 0:
+		return "（没有情境行）"
+	var tail := prompt.substr(i)
+	var end := tail.find("\n")
+	return tail if end < 0 else tail.substr(0, end)
 
 ## Transfer a painted container/bag cell by calling the panel's own handler.
 ## A real player clicks the cell (container_panel.gd :: _on_slot_input); in a

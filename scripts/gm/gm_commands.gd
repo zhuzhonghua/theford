@@ -46,6 +46,7 @@ const HELP := "GM 指令（F8 开关）:
   volume reload             从 settings.cfg 重读（验证重开保持）
   quality                   查看 AI 档位（off|low|medium|high）
   quality off               切换 AI 档位（0-3 也接受；off 不请求模型）
+  prompt smith village      打印该回合送进 LLM 的 prompt（看情境行；改天气/时钟后再打一次对比）
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   equip axe                 把背包里的斧头装备到手上（影响 F 动词）
   unequip                   卸下手中工具（物品留在背包里）
@@ -64,7 +65,7 @@ LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
-		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl"]
+		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl", "prompt"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -137,6 +138,7 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"quest": return _quest(rest)
 		"volume": return await _volume(rest)
 		"quality": return await _quality(rest)
+		"prompt": return await _prompt(rest)
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
 		"unequip": return await _unequip()
@@ -454,6 +456,26 @@ func _quality(args: PackedStringArray) -> String:
 
 func _quality_name() -> String:
 	return str(Game.snapshot.get("ai_quality", "medium"))
+
+## Print the exact prompt a dialogue turn would build. The full text goes to
+## the engine console (RichTextLabel would bury it); the GM log keeps just the
+## injected situation line so weather/time changes are easy to compare.
+func _prompt(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "用法：prompt <npc> [topic]（如 prompt smith village）"
+	var npc := args[0].to_lower()
+	var topic := args[1].to_lower() if args.size() >= 2 else "village"
+	var built: Variant = await Game.call_async("game:debug-talk-prompt", [npc, topic])
+	if not (built is String):
+		return "取不到 prompt：" + str(built)
+	print("\n===== talk prompt: %s / %s =====\n%s\n===== end =====" % [npc, topic, built])
+	var i: int = built.find("当前情境：")
+	var situation := "（prompt 里没有情境行）"
+	if i >= 0:
+		var tail: String = built.substr(i)
+		var e: int = tail.find("\n")
+		situation = tail if e < 0 else tail.substr(0, e)
+	return "已把完整 prompt 打到控制台。\n%s\n改天气 / 时钟后再输一次，对比这一行" % situation
 
 ## Dev-only item injection, so the panel's live refresh can be exercised
 ## without walking to a pickup. Goes through Scheme's bag-add! like every

@@ -67,9 +67,9 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
   `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；
   `bag` 开关背包面板、`give ore 3` 塞物品、`equip axe` 装备工具、`volume` 查看音量、
-  `quality off|medium` 查看或切换 AI 档位；
+  `quality off|medium` 查看或切换 AI 档位，`prompt smith village` 把该回合的 LLM prompt 打到控制台（含时辰/天气/日程情境行）；
   `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开；
-  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` 回放验收；输入 `help` 看全部指令
+  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` 回放验收；输入 `help` 看全部指令
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
   生成受 grammar 约束，模型只能输出合法指令

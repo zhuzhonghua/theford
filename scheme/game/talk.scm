@@ -11,6 +11,7 @@
 
 (require "game.util")
 (require "game.data.dialogue")
+(require "game.time")
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
@@ -55,21 +56,52 @@
 
 ;; ---- prompt / fallback ------------------------------------------------------
 
+;; Situation comes from the same sources the presentation layer reads: the
+;; clock/weather from time.scm and the NPC's current schedule step from
+;; npcs.scm. Scheme already decides all three, so no world query is needed.
+;; Labels live in data/dialogue.scm; an unknown symbol falls back to its name.
+(define (situation-label tbl sym)
+  (let ((v (table-ref tbl sym #f)))
+    (if (string? v) v (symbol->string sym))))
+
+(define (two-digit n)
+  (let ((s (number->string n)))
+    (if (< (string-length s) 2) (string-append "0" s) s)))
+
 ;; The template itself (and every literal in it) lives in data/dialogue.scm;
 ;; this function only supplies the per-turn values.
 (define (build-prompt npc player-text status qid)
-  (string-fill *prompt-template*
-    (list (cons "{persona}" (npc-persona npc))
-          (cons "{sys}" *sys-instruction*)
-          (cons "{quest}" (if qid (qtext qid) "在村里随便走走"))
-          (cons "{item}" (if qid (qfield qid 'pack-item "") ""))
-          (cons "{carried}" (number->string
-                              (if qid (qobjective-carried qid) (ore-carried))))
-          (cons "{status}" (symbol->string (car status)))
-          (cons "{reason}" (cdr status))
-          (cons "{hint}" (if qid (qhint qid (car status)) ""))
-          (cons "{history}" (hist-recent (or qid 'chat) npc 6))
-          (cons "{player}" player-text))))
+  (let* ((now (clock-at *tick*))
+         (hour (cadr now))
+         (activity (cadr (npc-plan npc hour))))
+    (string-fill *prompt-template*
+      (list (cons "{persona}" (npc-persona npc))
+            (cons "{sys}" *sys-instruction*)
+            (cons "{quest}" (if qid (qtext qid) "在村里随便走走"))
+            (cons "{item}" (if qid (qfield qid 'pack-item "") ""))
+            (cons "{carried}" (number->string
+                                (if qid (qobjective-carried qid) (ore-carried))))
+            (cons "{status}" (symbol->string (car status)))
+            (cons "{reason}" (cdr status))
+            (cons "{hint}" (if qid (qhint qid (car status)) ""))
+            (cons "{day}" (number->string (car now)))
+            (cons "{hour}" (two-digit hour))
+            (cons "{minute}" (two-digit (caddr now)))
+            (cons "{weather}" (situation-label *weather-labels* (current-weather)))
+            (cons "{who}" (npc-display npc))
+            (cons "{activity}" (situation-label *activity-labels* activity))
+            (cons "{history}" (hist-recent (or qid 'chat) npc 6))
+            (cons "{player}" player-text)))))
+
+;; Debug: the exact prompt a turn would build, without running the model or
+;; changing any state. Acceptance uses it to verify that time/weather/schedule
+;; reach the LLM input, which is otherwise only observable by reading a reply.
+(define (game:debug-talk-prompt npc topic)
+  (let* ((n (string->symbol npc))
+         (t (topic-key topic))
+         (qid (quest-for-npc n))
+         (text (or (table-ref *topic-utterances* t) "")))
+    (build-prompt n text (cons 'ignored "") qid)))
 
 (define (fallback-line npc topic)
   (or (table-ref (npc-fallback npc) topic) "……"))
@@ -77,17 +109,32 @@
 ;; ---- learned lines (cache) --------------------------------------------------
 ;; An LLM-generated line is proposed once, then it belongs to the village.
 ;; Each entry remembers the AI level it was made at (llm.scm tiers): the same
-;; (npc, topic, quest-state) at the same or a lower level replays it without
-;; touching the model; a higher level regenerates and overwrites it.
+;; (npc, topic, quest-state, situation) at the same or a lower level replays it
+;; without touching the model; a higher level regenerates and overwrites it.
+;; The situation bucket keeps a sunny noon line from being replayed on a rainy
+;; night — otherwise injecting weather into the prompt would not change any
+;; reply once that topic had been cached. Per-minute time would make every turn
+;; a miss, so it is bucketed into four parts of the day.
 ;; Returns (line source learned?): source ∈ "llm" | "cache" | "canned" | "fallback"
 (define *learned* '())
 
+(define (daypart hour)
+  (cond ((< hour 6) 'night)
+        ((< hour 12) 'morning)
+        ((< hour 18) 'afternoon)
+        ((< hour 22) 'evening)
+        (else 'night)))
+
 (define (learn-key npc t qid)
-  (let ((state (if qid (qstate-sym qid) 'not-offered)))
+  (let* ((state (if qid (qstate-sym qid) 'not-offered))
+         (now (clock-at *tick*))
+         (situation (string-append (symbol->string (daypart (cadr now))) "-"
+                                   (symbol->string (current-weather)))))
     (string-append (symbol->string npc) "/" (symbol->string t) "/"
       (cond ((eq? state 'completed) "2")
             ((eq? state 'accepted)  "1")
-            (else "0")))))
+            (else "0"))
+      "/" situation)))
 
 ;; Cache values are (line . tier); a tier that does not serve the current
 ;; setting is treated as a miss, so the model may be asked again.
