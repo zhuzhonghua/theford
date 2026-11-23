@@ -54,13 +54,19 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - 村民看到史莱姆会**逃跑**，威胁离开后回到自己的日程
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
+- **音频**：村庄 BGM 循环播放；脚步声跟着实际走过的距离响（音高微随机）；下雨时雨声淡入、
+  进屋后消失；拾取/砍树/命中/击杀/对话/任务完成/死亡各有对应音效，Music 与 SFX 分轨。
+  音效路径都在 `scheme/game/data/catalog.scm`；`THEFORD_DEBUG_AUDIO=1` 可打印每次播放
+- **O** 打开音量面板：主音量 / 音乐 / 音效各一个滑条，拖动即时生效；设置写入
+  `user://settings.cfg`，下次启动自动恢复。GM 也支持 `volume` 查看与设置
+  （`volume master 50`、`volume music 30`、`volume sfx 70`、`volume reload`）
 - **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
   模型名与 prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
 - **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
   `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；
-  `bag` 开关背包面板、`give ore 3` 塞物品、`equip axe` 装备工具；
+  `bag` 开关背包面板、`give ore 3` 塞物品、`equip axe` 装备工具、`volume` 查看音量；
   `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开；
-  `load combat` / `load game-over` / `load flee` 回放战斗验收；输入 `help` 看全部指令
+  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` 回放验收；输入 `help` 看全部指令
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
   生成受 grammar 约束，模型只能输出合法指令

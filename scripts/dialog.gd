@@ -50,6 +50,7 @@ func open_npc(npc: Node2D) -> void:
 	visible = true
 	is_open = true
 	Modals.push(self)
+	Audio.play("dialog-open")
 	# Canned greeting (no LLM), then topics straight from Scheme data.
 	var greet: Variant = await Game.call_async("game:greet", [_npc_id])
 	if not is_open:
@@ -69,6 +70,8 @@ func open_npc(npc: Node2D) -> void:
 				i += 1
 
 func close() -> void:
+	if is_open:
+		Audio.play("dialog-close")
 	visible = false
 	is_open = false
 	Modals.pop(self)
@@ -155,6 +158,9 @@ func _on_stream_pieces(pieces: PackedStringArray) -> void:
 	_typing = false
 	_text.text = _stream_buf
 	_text.visible_ratio = 1.0
+	# The Audio autoload throttles this per key, so a fast token stream still
+	# reads as steady typing instead of a machine-gun of clicks.
+	Audio.play("type")
 
 ## Fire-and-forget typewriter for lines already known (greeting / reply).
 func _type_out_free(line: String) -> void:
@@ -180,6 +186,7 @@ func _run_typewriter(line: String) -> void:
 		_text.visible_ratio = clampf(
 			_text.visible_ratio + dt * _type_speed / maxf(1.0, line.length()),
 			0.0, 1.0)
+		Audio.play("type")
 		await get_tree().process_frame
 		if _text.visible_ratio >= 1.0:
 			break

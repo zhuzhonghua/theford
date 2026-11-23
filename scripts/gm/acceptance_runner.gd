@@ -23,6 +23,7 @@ var _active := false
 var _run_id := 0
 var _pace := 1.0
 var _lines: Array[String] = []
+var _audio_backup := {}   # so a volume replay leaves the player's mix alone
 
 var _panel: ColorRect
 var _title: Label
@@ -702,6 +703,95 @@ func _execute(step: Variant, id: int) -> String:
 					break
 			if not found:
 				return "消息未出现：" + needle
+		"assert-audio":
+			# Counts cues that actually reached a player. Cue paths resolve on
+			# the logic worker the first time a key is used, so a short pause
+			# before the assertion lets an in-flight lookup land.
+			if step.size() < 2:
+				return "assert-audio 缺少音效键"
+			var cue := str(step[1])
+			var want_cue := int(step[2]) if step.size() >= 3 else 1
+			var have_cue := int(Audio.played.get(cue, 0))
+			_current.text = "断言：音效 %s 播放 ≥ %d 次" % [cue, want_cue]
+			if have_cue < want_cue:
+				return "期望 %s 至少 %d 次，实际 %d 次" % [cue, want_cue, have_cue]
+		"assert-ambience":
+			if step.size() < 3:
+				return "assert-ambience 需要键与 on|off"
+			var amb_key := str(step[1])
+			var want_on := str(step[2]).to_lower() == "on"
+			var have_on := bool(Audio.ambience.get(amb_key, false))
+			_current.text = "断言：环境音 %s = %s" % [amb_key, "on" if want_on else "off"]
+			if have_on != want_on:
+				return "期望 %s=%s，实际 %s" % [amb_key, want_on, have_on]
+		"backup-audio-settings":
+			_audio_backup = Audio.volume_snapshot()
+			_current.text = "记下当前音量，验收结束后恢复"
+		"restore-audio-settings":
+			Audio.apply_volumes(_audio_backup)
+			if main.volume_ui != null:
+				main.volume_ui.refresh()
+			_current.text = "恢复验收前的音量"
+		"assert-volume-panel":
+			if step.size() < 2:
+				return "assert-volume-panel 需要 open|closed"
+			if main.volume_ui == null:
+				return "音量面板不可用"
+			var want_vol_open := str(step[1]).to_lower() == "open"
+			_current.text = "断言：音量面板%s" % ("打开" if want_vol_open else "关闭")
+			if main.volume_ui.is_open != want_vol_open:
+				return "期望%s，实际%s" % [
+						"打开" if want_vol_open else "关闭",
+						"打开" if main.volume_ui.is_open else "关闭"]
+		"set-volume":
+			# Drive the actual HSlider: value_changed fires and the Audio bus is
+			# updated by the same handler a mouse drag uses.
+			if step.size() < 3:
+				return "set-volume 需要通道与 0-1 的值"
+			if main.volume_ui == null or not main.volume_ui.is_open:
+				return "音量面板没有打开"
+			var vol_key := str(step[1]).to_lower()
+			if Audio.bus_for_key(vol_key) == "":
+				return "未知音量通道：" + vol_key
+			var vol_value := clampf(float(step[2]), 0.0, 1.0)
+			_current.text = "拖动 %s 滑条 → %d%%" % [vol_key, roundi(vol_value * 100.0)]
+			main.volume_ui.set_slider(vol_key, vol_value)
+			Audio.save_settings()  # flush the debounce so the disk assert is stable
+			await _pause(0.3)
+		"assert-volume":
+			if step.size() < 3:
+				return "assert-volume 需要通道与 0-1 的值"
+			var av_key := str(step[1]).to_lower()
+			var av_bus := Audio.bus_for_key(av_key)
+			if av_bus == "":
+				return "未知音量通道：" + av_key
+			var av_want := clampf(float(step[2]), 0.0, 1.0)
+			var av_have := Audio.get_bus_volume(av_bus)
+			_current.text = "断言：%s 音量 = %d%%" % [av_key, roundi(av_want * 100.0)]
+			if absf(av_have - av_want) > 0.02:
+				return "期望 %s=%.2f，实际 %.2f" % [av_key, av_want, av_have]
+			var av_text: String = str(main.volume_ui.percent_text(av_key)) if main.volume_ui != null else ""
+			if av_text != "" and av_text != ("%d%%" % roundi(av_want * 100.0)):
+				return "滑条显示 %s，期望 %d%%" % [av_text, roundi(av_want * 100.0)]
+		"reload-audio-settings":
+			# Same code path a fresh process runs at startup.
+			Audio.reload_settings()
+			if main.volume_ui != null:
+				main.volume_ui.refresh()
+			_current.text = "从 user://settings.cfg 重读音量（等价于重开游戏）"
+		"assert-volume-saved":
+			Audio.save_settings()
+			var vol_cfg := ConfigFile.new()
+			if vol_cfg.load("user://settings.cfg") != OK:
+				return "读不到 user://settings.cfg"
+			if not Audio.volume_saved:
+				return "音量写入配置失败"
+			for vol_pair in [["master", "Master"], ["music", "Music"], ["sfx", "SFX"]]:
+				var saved := float(vol_cfg.get_value("audio", vol_pair[0], -1.0))
+				var live := Audio.get_bus_volume(str(vol_pair[1]))
+				if absf(saved - live) > 0.001:
+					return "%s 存盘 %.3f，实际 %.3f" % [vol_pair[0], saved, live]
+			_current.text = "断言：三个音量都已写入 settings.cfg 且与总线一致"
 		_:
 			return "未知操作：" + op
 	return ""

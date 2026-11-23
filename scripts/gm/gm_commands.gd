@@ -39,6 +39,11 @@ const HELP := "GM 指令（F8 开关）:
   bag open / bag close      打开或关闭背包面板
   quest                     查看任务进度 / 开关任务日志（等同 J 键）
   quest open / quest close  打开或关闭任务日志
+  volume                    查看主 / 音乐 / 音效三个音量
+  volume master 50          设置主音量 0-100（实时生效，存 user://settings.cfg）
+  volume music 30 / volume sfx 70
+  volume open / close       开关音量滑条面板（等同 O 键）
+  volume reload             从 settings.cfg 重读（验证重开保持）
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   equip axe                 把背包里的斧头装备到手上（影响 F 动词）
   unequip                   卸下手中工具（物品留在背包里）
@@ -57,7 +62,7 @@ LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
-		"hp", "hurt", "heal", "restart", "slime", "quest", "nl"]
+		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "nl"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -128,6 +133,7 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"reload": return await _reload()
 		"bag": return _bag(rest)
 		"quest": return _quest(rest)
+		"volume": return await _volume(rest)
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
 		"unequip": return await _unequip()
@@ -376,6 +382,50 @@ func _quest(args: PackedStringArray) -> String:
 					objs.append("%s %d/%d" % [str(obj[0]), int(obj[1]), int(obj[2])])
 			lines.append("%s [%s] %s：%s" % [str(row[0]), str(row[2]), str(row[1]), ", ".join(objs)])
 	return "\n".join(lines) if lines.size() > 1 else "（还没有任务）"
+
+## Three audio buses share one tiny API on the Audio autoload. This command is
+## the deterministic twin of dragging a slider in the O panel; `volume reload`
+## re-reads user://settings.cfg, which is also how acceptance proves a restart
+## would keep the mix.
+func _volume(args: PackedStringArray) -> String:
+	if main.volume_ui == null:
+		return "音量面板不可用"
+	if args.is_empty():
+		return _volume_state()
+	var mode := args[0].to_lower()
+	match mode:
+		"open":
+			Modals.close_all()
+			main.volume_ui.open()
+			return "音量设置：打开"
+		"close":
+			main.volume_ui.close()
+			return "音量设置：关闭"
+		"toggle":
+			main.volume_ui.toggle()
+			return "音量设置：%s" % ("打开" if main.volume_ui.is_open else "关闭")
+		"reload":
+			Audio.reload_settings()
+			main.volume_ui.refresh()
+			return "已从 settings.cfg 重读音量\n" + _volume_state()
+	var bus := Audio.bus_for_key(mode)
+	if bus == "":
+		return "用法：volume <master|music|sfx> <0-100> | volume open|close|reload"
+	if args.size() < 2:
+		return "用法：volume %s <0-100>" % mode
+	var percent := clampf(float(args[1]), 0.0, 100.0)
+	# Go through the slider so a GM change and a mouse drag share one path.
+	main.volume_ui.set_slider(mode, percent / 100.0)
+	Audio.save_settings()
+	return _volume_state()
+
+func _volume_state() -> String:
+	var lines: PackedStringArray = []
+	for pair in [["master", "主音量"], ["music", "音乐"], ["sfx", "音效"]]:
+		var key: String = pair[0]
+		var bus: String = Audio.bus_for_key(key)
+		lines.append("%s %d%%" % [pair[1], roundi(Audio.get_bus_volume(bus) * 100.0)])
+	return "\n".join(lines) + ("（已存盘）" if Audio.volume_saved else "")
 
 ## Dev-only item injection, so the panel's live refresh can be exercised
 ## without walking to a pickup. Goes through Scheme's bag-add! like every

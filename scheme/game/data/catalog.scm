@@ -33,13 +33,21 @@
     ;; music: key -> path
     (music = (table
                (village = "assets/na/Audio/Musics/4 - Village.ogg")))
-    ;; sfx: event key -> path relative to res://. Death and quest completion
-    ;; are wired in the shell; the rest are ready for the audio phase.
+    ;; sfx: event key -> path relative to res://. The shell plays these by key
+    ;; (Audio.play / Audio.set_ambience), so swapping an asset needs no GDScript
+    ;; edit. `rain` is a looping ambience bed; the rest are one-shot cues.
     (sfx = (table
              (gameover = "assets/na/Audio/Jingles/GameOver2.wav")
              (success = "assets/na/Audio/Jingles/Success1.wav")
              (hit = "assets/na/Audio/Sounds/Hit & Impact/Hit1.wav")
-             (kill = "assets/na/Audio/Sounds/Hit & Impact/Impact.wav")))
+             (kill = "assets/na/Audio/Sounds/Hit & Impact/Impact.wav")
+             (pickup = "assets/na/Audio/Sounds/Bonus/Coin.wav")
+             (dialog-open = "assets/na/Audio/Sounds/Menu/Accept4.wav")
+             (dialog-close = "assets/na/Audio/Sounds/Menu/Cancel2.wav")
+             (type = "assets/na/Audio/Sounds/Voice/Voice4.wav")
+             (chop = "assets/na/Audio/Sounds/Whoosh & Slash/Slash.wav")
+             (footstep = "assets/na/Audio/Sounds/Elemental/Grass.wav")
+             (rain = "assets/na/Audio/Sounds/Elemental/Water1.wav")))
     ;; items: sprite key -> (path rect) for the bag panel. `rect` is
     ;; (x y w h) inside the sheet; (0 0 0 0) means the whole image. Keys match
     ;; the `sprite` field on data/types.scm rows ("item:axe", "item:ore", ...).

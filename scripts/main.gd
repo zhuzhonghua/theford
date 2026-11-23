@@ -49,6 +49,7 @@ const BagPanel := preload("res://scripts/bag_panel.gd")
 const ContainerPanel := preload("res://scripts/container_panel.gd")
 const GameOver := preload("res://scripts/game_over.gd")
 const QuestPanel := preload("res://scripts/quest_panel.gd")
+const VolumePanel := preload("res://scripts/volume_panel.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
@@ -57,8 +58,8 @@ var bag_ui: BagPanel = null
 var container_ui: ContainerPanel = null
 var game_over_ui: GameOver = null
 var quest_ui: QuestPanel = null
+var volume_ui: VolumePanel = null
 var gm: Node = null
-var _sfx: AudioStreamPlayer = null
 var _restarting := false
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
@@ -68,6 +69,8 @@ var _weather_layer: CanvasLayer = null
 var _rain: GPUParticles2D = null
 var _fog: ColorRect = null
 var _last_weather := ""
+var _last_player_pos := Vector2.ZERO  # footstep cadence tracks real movement
+var _step_distance := 0.0
 var _last_quest_completions := 0   # for the one-shot completion jingle
 var _astar := AStarGrid2D.new()
 var _anchors := {}       # anchor name -> world position (from Marker2D nodes)
@@ -114,6 +117,9 @@ func _ready() -> void:
 	quest_ui = QuestPanel.new()
 	add_child(quest_ui)
 	quest_ui.setup(font)
+	volume_ui = VolumePanel.new()
+	add_child(volume_ui)
+	volume_ui.setup(font)
 	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
@@ -171,28 +177,17 @@ func _setup_gm(font: Font) -> void:
 func _setup_audio() -> void:
 	var bgm := AudioStreamPlayer.new()
 	bgm.name = "BGM"
+	bgm.bus = "Music"
 	bgm.volume_db = -10.0
 	add_child(bgm)
-	# One-shot cues (death jingle, hits) share a second player. Bus routing and
-	# the rest of the cue table land in the audio phase; Phase 7 only needs the
-	# death jingle, keyed in catalog.scm like every other asset path.
-	_sfx = AudioStreamPlayer.new()
-	_sfx.name = "SFX"
-	_sfx.volume_db = -6.0
-	add_child(_sfx)
+	# One-shot cues, ambience beds and bus routing all live in the Audio
+	# autoload. This shell only owns the map's BGM player; everything else is
+	# fired by key so the cue table stays in data/catalog.scm.
 
-## Play a catalogued sound effect once. Paths live in data/catalog.scm so the
-## asset can change without a GDScript edit.
+## Play a catalogued sound effect once. Delegated to the Audio autoload so the
+## death/quest jingles and every other cue share one mixer and one bus split.
 func _play_sfx(key: String) -> void:
-	if _sfx == null:
-		return
-	var path: Variant = await Game.call_async("game:catalog-sfx", [key])
-	if path == null or str(path) == "":
-		return
-	var stream: AudioStream = load("res://" + str(path))
-	if stream != null:
-		_sfx.stream = stream
-		_sfx.play()
+	Audio.play(key)
 
 ## Kick off BGM for the starting map once the bridge is up.
 func _start_bgm() -> void:
@@ -539,6 +534,9 @@ func _effect_hit(args: Array) -> void:
 		return
 	var id := str(args[0])
 	_vfx_hit(id)
+	# A swing at a tree has its own whoosh; every other blow gets the impact
+	# cue. The target's type is still the tree here (transform runs later).
+	Audio.play("chop" if _entity_types.get(id, "") == "fixture/tree" else "hit")
 	if args.size() >= 3:
 		if id == "player":
 			_log_line("你受到 %d 点伤害，剩余 %d" % [int(args[1]), int(args[2])])
@@ -574,6 +572,7 @@ func _effect_despawn(args: Array) -> void:
 	if args.is_empty():
 		return
 	var eid := str(args[0])
+	Audio.play("kill")
 	var ref: Variant = _entities.get(eid, null)
 	if is_instance_valid(ref):
 		ref.queue_free()
@@ -1038,6 +1037,7 @@ func _enter_portal(portal_id: String) -> void:
 ## portals, nav grid, camera) and re-seeds NPC positions from the schedule.
 func _switch_map(map_id: String, at: String) -> void:
 	_current_map_id = map_id
+	_refresh_rain_ambience()  # rain is audible outside, muffled indoors
 	Modals.close_all()
 	var scene_path: String = _scene_path_cache.get(map_id, "")
 	if scene_path == "":
@@ -1170,7 +1170,7 @@ func _refresh_hud() -> void:
 	elif _verb_hint != "":
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
-		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   O 音量   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
 	hud_label.text = "第 %d 天  %02d:%02d   天气：%s   ♥ %d/%d\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
@@ -1344,6 +1344,15 @@ func _refresh_weather() -> void:
 	_rain.speed_scale = 1.3 if weather == "storm" else 1.0
 	_rain.emitting = raining
 	_rain.visible = raining
+	_refresh_rain_ambience()
+
+## Rain ambience follows the same switch as the particles, and goes quiet
+## indoors. The Audio autoload
+## fades the loop and remembers the request if the bridge is not up yet.
+func _refresh_rain_ambience() -> void:
+	var weather := str(Game.snapshot.get("weather", "sun"))
+	var raining := weather == "rain" or weather == "storm"
+	Audio.set_ambience("rain", raining and _current_map_id != "smithy")
 
 func _daylight_color(hour: float) -> Color:
 	if hour < 5.0 or hour >= 20.0:
@@ -1390,6 +1399,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				quest_ui.open()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_O:
+			if not Modals.is_modal_open() and volume_ui != null:
+				volume_ui.open()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_F1:
 			if mech != null:
 				mech.toggle_visible()
@@ -1422,6 +1436,31 @@ func _exit_tree() -> void:
 	# Release the grid explicitly: it is the one RefCounted the scene owns.
 	_astar = null
 
+## Footsteps follow distance actually walked, not a timer: standing still or a
+## modal panel is silent, scripted walks use the same signal, and a teleport
+## (portal / map switch) is ignored instead of firing a burst of steps.
+func _track_footsteps() -> void:
+	if player == null:
+		return
+	var moved := player.position.distance_to(_last_player_pos)
+	_last_player_pos = player.position
+	if not Game.booted or Modals.is_modal_open():
+		_step_distance = 0.0
+		return
+	if moved > 32.0:
+		# A portal / map switch moved the node: don't credit that as walking.
+		_step_distance = 0.0
+		return
+	if moved < 0.05:
+		# A render frame with no physics step between it and the last one still
+		# keeps the accumulated distance, otherwise headless replay (where
+		# process frames outnumber physics frames) never reaches a footfall.
+		return
+	_step_distance += moved
+	if _step_distance >= 18.0:
+		_step_distance = 0.0
+		Audio.play("footstep")
+
 func _process(delta: float) -> void:
 	_maybe_capture_frame()
 	var rate: float = gm.speed() if gm != null else 1.0
@@ -1447,6 +1486,7 @@ func _process(delta: float) -> void:
 			_poll_effects()
 	_apply_people(Game.snapshot.get("people", []))
 	_move_npcs(delta)
+	_track_footsteps()
 	_update_verb_hint()
 	if player != null and not _portal_traveling and not player.scripted:
 		if _portal_wait_release:
@@ -1483,6 +1523,7 @@ func _try_pick(node: Node2D, type_id: String) -> void:
 	if not is_instance_valid(node):
 		return
 	if bool(ok):
+		Audio.play("pickup")
 		# A herb now has a real sprite, so make the moment it vanishes readable
 		# too: the HUD hint says what was picked up instead of silently +1.
 		if node.is_in_group("herb"):

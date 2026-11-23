@@ -24,6 +24,7 @@ config/features=PackedStringArray("4.7")
 Game="*res://scripts/game_bridge.gd"
 Modals="*res://scripts/modal_stack.gd"
 Effects="*res://scripts/effect_bus.gd"
+Audio="*res://scripts/audio_manager.gd"
 
 [display]
 
