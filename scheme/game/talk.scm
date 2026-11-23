@@ -76,8 +76,9 @@
 
 ;; ---- learned lines (cache) --------------------------------------------------
 ;; An LLM-generated line is proposed once, then it belongs to the village.
-;; For the same (npc, topic, quest-state) the replayed answer is deterministic
-;; — the second ask never hits the model.
+;; Each entry remembers the AI level it was made at (llm.scm tiers): the same
+;; (npc, topic, quest-state) at the same or a lower level replays it without
+;; touching the model; a higher level regenerates and overwrites it.
 ;; Returns (line source learned?): source ∈ "llm" | "cache" | "canned" | "fallback"
 (define *learned* '())
 
@@ -88,12 +89,17 @@
             ((eq? state 'accepted)  "1")
             (else "0")))))
 
+;; Cache values are (line . tier); a tier that does not serve the current
+;; setting is treated as a miss, so the model may be asked again.
 (define (learn-get key)
   (let ((hit (alist-get *learned* key)))
-    (and (string? hit) (not (string=? hit "")) hit)))
+    (and (pair? hit)
+         (string? (car hit))
+         (tier-serves? (cdr hit))
+         (car hit))))
 
 (define (learn-put! key line)
-  (set! *learned* (alist-put *learned* key line)))
+  (set! *learned* (alist-put *learned* key (cons line *ai-quality*))))
 
 ;; Drop the cache so edited content is visible immediately after game:reload.
 (define (reset-talk!)
@@ -103,8 +109,11 @@
   (let ((key (learn-key npc t qid)))
     (let ((hit (learn-get key)))
       (cond (hit (list hit "cache" #t))
+            ((not (ai-asks?))
+             ;; off (or no model loaded): the canned village line answers.
+             (list (fallback-line npc t) "canned" #f))
             (else
-             (let ((l (generate-line prompt 120)))
+             (let ((l (generate-line prompt (quality-tokens))))
                (cond ((string=? l "")
                       (list (fallback-line npc t) "fallback" #f))
                      (else
@@ -118,7 +127,7 @@
 ;; Return shape (all elements visible to the mechanism HUD):
 ;;   (reply quest-text carried learned? decision)
 ;; where decision =
-;;   (topic intent verdict-status reason source model-desc prefill-tps decode-tps).
+;;   (topic intent verdict-status reason source model-desc prefill-tps decode-tps ai-quality).
 (define (game:talk npc topic)
   (talk (string->symbol npc) topic))
 
@@ -139,15 +148,14 @@
                  ((or (eq? t 'quest) (eq? t 'give)) (or (table-ref *topic-utterances* 'work) "……"))
                  (else (or (table-ref *topic-utterances* t) "……"))))
          ;; Path 2: quest happenings stay canned (deterministic by design);
-         ;; Path 3: village / work / plain chat goes through the LLM,
-         ;; then through the learned cache.
+         ;; Path 3: village / work / plain chat goes through the learned cache,
+         ;; then the LLM unless the AI level is off (llm-line handles both).
          (reply
            (cond ((and quest-topic (not (eq? (car verdict) 'ignored)))
                   ;; Quest milestones are scripted even without a model: the
                   ;; verdict must match the line ("rejected" can never say
                   ;; "I'll take it").
                   (list (canned-quest-line npc qid verdict) "canned" #f))
-                 ((not *use-llm*) (plain-line npc t))
                  (quest-topic (plain-line npc t))
                  (else (llm-line npc t qid (build-prompt npc player-text verdict qid)))))
          ;; llm-perf numbers only belong to a turn that actually ran the model.
@@ -168,7 +176,8 @@
                 (cadr reply)
                 (if (string? *model-desc*) *model-desc* "")
                 prefill-perf
-                decode-perf))))
+                decode-perf
+                (symbol->string *ai-quality*)))))
 
 ;; The LLM is told what happened (verdict), but the canonical line for quest
 ;; milestones is scripted — the same reason cutscenes are scripted.

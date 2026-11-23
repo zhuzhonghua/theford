@@ -39,6 +39,7 @@ const ACTIVITY_NAMES := {
 	"lunch": "吃饭", "drinking": "歇脚", "strolling": "闲逛",
 	"sleep": "睡觉", "idle": "站着", "flee": "逃跑",
 }
+const AI_QUALITY_NAMES := {"off": "关", "low": "低", "medium": "中", "high": "高"}
 
 var map_w := 0
 var map_h := 0
@@ -1171,6 +1172,10 @@ func _refresh_hud() -> void:
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
 		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   O 音量   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+	var quality := str(Game.snapshot.get("ai_quality", "medium"))
+	var llm_state := "LLM：本地推理" if Game.use_llm else "LLM：预置台词"
+	if quality != "":
+		llm_state += "（AI " + str(AI_QUALITY_NAMES.get(quality, quality)) + "）"
 	hud_label.text = "第 %d 天  %02d:%02d   天气：%s   ♥ %d/%d\n%s\n%s\n%s   %s\n%s" % [
 			int(Game.snapshot.get("day", 1)),
 			int(Game.snapshot.get("hour", 8)),
@@ -1181,7 +1186,7 @@ func _refresh_hud() -> void:
 			str(Game.snapshot.get("quest_text", "")) + "   经验 " + str(int(Game.snapshot.get("xp", 0))),
 			_activity_line(),
 			_bag_line(),
-			("LLM：本地推理" if Game.use_llm else "LLM：无模型·预置台词"),
+			llm_state,
 			hint]
 	_refresh_weather()
 	_check_game_over()

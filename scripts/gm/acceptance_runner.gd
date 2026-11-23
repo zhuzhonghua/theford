@@ -792,6 +792,38 @@ func _execute(step: Variant, id: int) -> String:
 				if absf(saved - live) > 0.001:
 					return "%s 存盘 %.3f，实际 %.3f" % [vol_pair[0], saved, live]
 			_current.text = "断言：三个音量都已写入 settings.cfg 且与总线一致"
+		"assert-ai-quality":
+			if step.size() < 2:
+				return "assert-ai-quality 缺少档位"
+			var want_ai := str(step[1]).to_lower()
+			var have_ai := str(Game.snapshot.get("ai_quality", ""))
+			_current.text = "断言：AI 档位 = %s" % want_ai
+			if have_ai != want_ai:
+				return "期望 %s，实际 %s" % [want_ai, have_ai]
+		"assert-start-ai-quality":
+			# The startup level comes from THEFORD_AI_QUALITY; empty means
+			# medium. Checking it here (before any GM switch) proves the env
+			# var was applied, without hard-coding which level the run uses.
+			var env_raw := OS.get_environment("THEFORD_AI_QUALITY").strip_edges().to_lower()
+			var want_start := "medium"
+			match env_raw:
+				"", "2", "medium": want_start = "medium"
+				"0", "off": want_start = "off"
+				"1", "low": want_start = "low"
+				"3", "high": want_start = "high"
+			var have_start := str(Game.snapshot.get("ai_quality", ""))
+			_current.text = "断言：启动档位与环境变量一致（%s）" % want_start
+			if have_start != want_start:
+				return "THEFORD_AI_QUALITY=%s 应得到 %s，实际 %s" % [env_raw, want_start, have_start]
+		"assert-turn-source":
+			if step.size() < 2:
+				return "assert-turn-source 缺少来源（llm|cache|canned|fallback）"
+			var want_src := str(step[1]).to_lower()
+			var turn: Dictionary = Game.snapshot.get("last_turn", {})
+			var have_src := str(turn.get("source", "")) if turn is Dictionary else ""
+			_current.text = "断言：上一轮台词来源 = %s" % want_src
+			if have_src != want_src:
+				return "期望 %s，实际 %s" % [want_src, have_src if have_src != "" else "（还没有对话）"]
 		_:
 			return "未知操作：" + op
 	return ""

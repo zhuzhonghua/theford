@@ -14,6 +14,8 @@ extends Node
 ##   1. $THEFORD_MODEL
 ##   2. <project>/models/Qwen3-0.6B-Q4_K_M.gguf
 ## If neither exists the game still runs: NPCs fall back to canned lines.
+## $THEFORD_AI_QUALITY (off|low|medium|high or 0..3) sets how much the model
+## does; off never loads it. It is the player's preference, not save state.
 
 signal bridge_ready(llm_available: bool)
 signal rpc_replied(ticket: int, result: Variant)
@@ -22,8 +24,11 @@ signal snapshot_changed
 signal stream_pieces(pieces: PackedStringArray)
 
 const DEFAULT_GGUF := "models/Qwen3-0.6B-Q4_K_M.gguf"
+const DEFAULT_AI_QUALITY := "medium"
 
 var use_llm := false
+## Effective AI level: off/low/medium/high (see scheme/game/llm.scm).
+var ai_quality := DEFAULT_AI_QUALITY
 var vm_error := ""
 var booted := false
 ## Main-thread view of what the HUD needs; only the bridge writes it.
@@ -50,6 +55,7 @@ var snapshot := {
 	"container": {},    # open container view: {id, name, capacity, slots, rows}
 	"model": "",
 	"llm_version": "",
+	"ai_quality": DEFAULT_AI_QUALITY, # off/low/medium/high (scheme/game/llm.scm)
 	"last_turn": {},
 }
 
@@ -76,6 +82,7 @@ func _ready() -> void:
 		var guess: String = ProjectSettings.globalize_path("res://").path_join(DEFAULT_GGUF)
 		if FileAccess.file_exists(guess):
 			_model_path = guess
+	ai_quality = _read_ai_quality()
 	_running = true
 	_thread = Thread.new()
 	var err: int = _thread.start(_worker_main)
@@ -85,6 +92,22 @@ func _ready() -> void:
 		vm_error = "无法启动逻辑线程（错误码 %d）" % err
 		push_error("[scmllama] " + vm_error)
 		emit_signal("bridge_ready", false)
+
+## $THEFORD_AI_QUALITY accepts a name or 0..3; unknown values keep the default.
+func _read_ai_quality() -> String:
+	var raw := OS.get_environment("THEFORD_AI_QUALITY").strip_edges().to_lower()
+	match raw:
+		"", "2", "medium":
+			return "medium"
+		"0", "off":
+			return "off"
+		"1", "low":
+			return "low"
+		"3", "high":
+			return "high"
+		_:
+			push_warning("[TheFord] 未知 THEFORD_AI_QUALITY=%s，按 medium 处理" % raw)
+			return "medium"
 
 ## ---- worker thread: owns the VM end to end --------------------------------
 
@@ -101,6 +124,9 @@ func _worker_main() -> void:
 		err = vm.load_file(_main_scm)
 
 	if err == "":
+		# The AI level is set before boot so an `off` startup never touches the
+		# GGUF (fast boot, no model memory). Switching up later boots on demand.
+		vm.call_fn("game:set-ai-quality", [ai_quality])
 		if _model_path != "":
 			vm.call_fn("game:set-model-path", [_model_path])
 			# Blocking load (~1s for 0.6B Q4) happens on this thread, so the
@@ -115,6 +141,7 @@ func _worker_main() -> void:
 			msg["engine"] = eng
 	else:
 		msg["error"] = err
+	msg["quality"] = ai_quality
 	_push(msg)
 
 	while _running:
@@ -176,19 +203,35 @@ func _process(_delta: float) -> void:
 func _on_ready(m: Dictionary) -> void:
 	vm_error = str(m.get("error", ""))
 	use_llm = bool(m.get("llm", false))
+	ai_quality = str(m.get("quality", ai_quality))
 	var st: Variant = m.get("status")
 	if st is Array and st.size() == 6:
 		_write_snapshot(st[0], st[1], st.slice(2))
-	var eng: Variant = m.get("engine")
-	if eng is Array and eng.size() >= 3:
-		snapshot["model"] = str(eng[0])
-		snapshot["llm_version"] = str(eng[2])
+	_write_engine(m.get("engine"), false)
+	snapshot["ai_quality"] = ai_quality
 	booted = true
 	if vm_error != "":
 		push_error("[scmllama] Scheme bootstrap failed: " + vm_error)
+	elif ai_quality == "off":
+		print("[TheFord] AI 档位 off：不加载模型，NPC 使用预置台词（quality 可随时开启）")
 	elif not use_llm:
 		print("[TheFord] 未找到模型，NPC 将使用预置台词（THEFORD_MODEL 可指定 GGUF 路径）")
 	emit_signal("bridge_ready", use_llm)
+
+## engine-info = (model-desc use-llm? llama.cpp-version ai-quality); the same
+## shape comes back from game:set-ai-quality, so a GM switch refreshes the HUD
+## and the bridge's use_llm flag without a restart.
+func _write_engine(eng: Variant, notify: bool = true) -> void:
+	if not (eng is Array and eng.size() >= 3):
+		return
+	snapshot["model"] = str(eng[0])
+	use_llm = bool(eng[1])
+	snapshot["llm_version"] = str(eng[2])
+	if eng.size() >= 4:
+		ai_quality = str(eng[3])
+		snapshot["ai_quality"] = ai_quality
+	if notify:
+		snapshot_changed.emit()
 
 ## Cache the state-bearing parts of replies so the HUD never calls the VM.
 func _absorb(fn: String, result: Variant) -> void:
@@ -212,6 +255,8 @@ func _absorb(fn: String, result: Variant) -> void:
 				_write_snapshot(result[0], result[1], result.slice(2))
 			# Even an unchanged status needs a repaint: last_turn was cleared.
 			snapshot_changed.emit()
+		"game:engine-info", "game:set-ai-quality":
+			_write_engine(result)
 		"game:people":
 			if result is Array:
 				_write_people(result)
@@ -289,7 +334,7 @@ func _write_snapshot(quest_text: Variant, carried: Variant, clock: Array = []) -
 	snapshot["weather"] = w
 	snapshot_changed.emit()
 
-## decision = (topic intent verdict reason source model-desc prefill-tps decode-tps)
+## decision = (topic intent verdict reason source model-desc prefill-tps decode-tps quality)
 ## from game:talk. The two t/s values come from the Scheme-side llm-perf table.
 func _store_turn(decision: Array, learned: bool) -> void:
 	var turn := {
@@ -301,6 +346,7 @@ func _store_turn(decision: Array, learned: bool) -> void:
 		"model": str(decision[5]) if decision.size() > 5 else "",
 		"prefill_tps": float(decision[6]) if decision.size() > 6 else 0.0,
 		"decode_tps": float(decision[7]) if decision.size() > 7 else 0.0,
+		"quality": str(decision[8]) if decision.size() > 8 else ai_quality,
 		"learned": learned,
 	}
 	snapshot["last_turn"] = turn

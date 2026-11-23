@@ -33,6 +33,64 @@
           (let ((eos (string-index clean "<|im_end|>")))
             (if eos (substring clean 0 eos) clean))))))
 
+;; ---- AI quality -------------------------------------------------------------
+;; How much the local model does, mirroring the reference's AI setting: a
+;; player preference (not world state, so never saved) with four levels.
+;; There is one AI category here — NPC lines — so a level only sets the
+;; generation budget and which learned answers may be replayed:
+;;   off     no model request at all (learned lines still answer)
+;;   low     short replies (64 tokens)
+;;   medium  default (120 tokens)
+;;   high    long replies (200 tokens)
+;; A learned line remembers the level it was made at: a higher answer serves
+;; every lower setting, a lower one never serves a higher. Entries made before
+;; tiers existed count as medium.
+(define *ai-quality* 'medium)
+
+;; 0..3 and names are both accepted; anything unknown falls back to medium.
+(define (quality-of x)
+  (cond ((eq? x 'off) 'off)
+        ((eq? x 'low) 'low)
+        ((eq? x 'medium) 'medium)
+        ((eq? x 'high) 'high)
+        ((number? x)
+         (cond ((<= x 0) 'off)
+               ((= x 1) 'low)
+               ((= x 2) 'medium)
+               (else 'high)))
+        ((string? x)
+         (cond ((or (string=? x "0") (string=? x "off")) 'off)
+               ((or (string=? x "1") (string=? x "low")) 'low)
+               ((or (string=? x "2") (string=? x "medium")) 'medium)
+               ((or (string=? x "3") (string=? x "high")) 'high)
+               (else 'medium)))
+        (else 'medium)))
+
+(define (quality-off?) (eq? *ai-quality* 'off))
+(define (quality-allows-ai?) (not (quality-off?)))
+
+(define (quality-tokens)
+  (cond ((eq? *ai-quality* 'low) 64)
+        ((eq? *ai-quality* 'high) 200)
+        (else 120)))
+
+(define (quality-rank)
+  (cond ((eq? *ai-quality* 'low) 1)
+        ((eq? *ai-quality* 'medium) 2)
+        ((eq? *ai-quality* 'high) 3)
+        (else 0)))
+
+(define (tier-rank tier)
+  (cond ((eq? tier 'low) 1)
+        ((eq? tier 'medium) 2)
+        ((eq? tier 'high) 3)
+        (else 2)))
+
+;; Does an answer made at `tier` serve the current setting? off (rank 0) takes
+;; every tier, just as the reference's off setting asks nothing and replays all.
+(define (tier-serves? tier)
+  (>= (tier-rank tier) (quality-rank)))
+
 ;; ---- model / llm infra ------------------------------------------------------
 
 (define *model-path* #f)
@@ -55,6 +113,18 @@
 
 (define (game:set-model-path path)
   (set! *model-path* path))
+
+;; The player's AI setting. Returning engine-info lets the bridge refresh the
+;; HUD and its use_llm flag from one reply. Switching up from off boots the
+;; model on demand (the worker thread pays the load, like the initial boot).
+(define (game:set-ai-quality q)
+  (set! *ai-quality* (quality-of q))
+  (if (and (quality-allows-ai?) (not *use-llm*) (string? *model-path*))
+      (boot-llm))
+  (game:engine-info))
+
+(define (ai-asks?)
+  (and *use-llm* (quality-allows-ai?)))
 
 (define (boot-llm)
   ;; Host contract first: the extension registers `llm-stream-push`; the bare
@@ -83,17 +153,18 @@
   )
 
 (define (game:boot)
-  (if (string? *model-path*)
+  (if (and (string? *model-path*) (quality-allows-ai?))
       (begin
         (boot-llm)
         *use-llm*)
       #f))
 
-;; (model-desc use-llm? llama.cpp-version) — read by the bridge for the HUD.
+;; (model-desc use-llm? llama.cpp-version quality) — read by the bridge for the HUD.
 (define (game:engine-info)
   (list (if (string? *model-desc*) *model-desc* "")
         (if *use-llm* #t #f)
-        (if (string? *llama-version*) *llama-version* "")))
+        (if (string? *llama-version*) *llama-version* "")
+        (symbol->string *ai-quality*)))
 
 (define (generate-line prompt tokens)
   ;; Any error aborts the whole turn; the call boundary degrades it to the

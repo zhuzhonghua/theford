@@ -23,7 +23,7 @@ func setup(font: Font) -> void:
 	_panel.offset_left = -552.0
 	_panel.offset_top = 8.0
 	_panel.offset_right = -8.0
-	_panel.offset_bottom = 226.0
+	_panel.offset_bottom = 252.0
 	_panel.self_modulate = Color(1, 1, 1, 0.92)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_panel)
@@ -103,6 +103,14 @@ func _verdict_label(raw: String) -> String:
 		"ignored":  return "忽略"
 		_:          return raw
 
+func _quality_label(raw: String) -> String:
+	match raw:
+		"off":    return "关 · 不请求模型"
+		"low":    return "低 · 短回复 64 tok"
+		"medium": return "中 · 默认 120 tok"
+		"high":   return "高 · 长回复 200 tok"
+		_:        return raw
+
 func _refresh() -> void:
 	if _text == null or not _visible:
 		return
@@ -131,7 +139,9 @@ func _refresh() -> void:
 				lines.append("台词来源  [color=#79c0ff]Scheme 缓存命中[/color] · 无模型开销")
 				lines.append("learned   [color=#79c0ff]HIT[/color] · 这个回答已经属于村庄")
 			"canned":
-				if Game.use_llm:
+				if str(Game.snapshot.get("ai_quality", "")) == "off":
+					lines.append("台词来源  [color=#ffa657]预置台词[/color] · AI 档位关闭，不请求模型")
+				elif Game.use_llm:
 					lines.append("台词来源  [color=#d2a8ff]剧本台词[/color] · 无需 LLM 的确定回复")
 				else:
 					lines.append("台词来源  [color=#ffa657]预置台词[/color] · 未加载模型")
@@ -150,4 +160,6 @@ func _refresh() -> void:
 	else:
 		lines.append("[color=#8b949e]模型 %s · llama.cpp %s[/color]" % [
 				model, str(Game.snapshot.get("llm_version", "?"))])
+	lines.append("[color=#8b949e]AI 档位 %s · 高档答案可供低档，低档不服务高档[/color]" % [
+			_quality_label(str(Game.snapshot.get("ai_quality", "medium")))])
 	_text.text = "\n".join(lines)

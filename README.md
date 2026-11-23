@@ -37,7 +37,7 @@ cmake --build build --target scmllama_gdextension -j
 
 Platforms: verified only on macOS arm64 (`.gdextension` currently registers a macOS entry only). Linux/Windows require building the extension on that platform and adding the matching entry.
 
-Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tracked by git; for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF)).
+Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tracked by git; for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF)). Set `THEFORD_AI_QUALITY=0` (or `off`) to run with **no model at all** — NPCs use canned lines and the game is still completable. The four levels are `off` / `low` (64 tokens) / `medium` (default, 120) / `high` (200); higher learned lines replay at lower levels, never the other way around.
 
 ## Gameplay
 
@@ -52,8 +52,8 @@ Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tr
 - Chen Po and Manager Zhang: free conversation, generated locally and different every time
 - **Audio**: a looping village theme, footsteps that follow how far you actually walk (with slight pitch variation), rain that fades in with the weather and goes quiet indoors, and cues for pickup / chop / hit / kill / dialog / quest completion / death. Music and effects are on separate buses; cue paths live in `scheme/game/data/catalog.scm`. Set `THEFORD_DEBUG_AUDIO=1` to log every cue.
 - **O** opens the volume panel: one slider each for Master / Music / SFX. Dragging changes the live bus instantly; values are saved to `user://settings.cfg` and restored on the next launch. **`volume`** in the GM console prints/sets them (`volume master 50`, `volume music 30`, `volume sfx 70`, `volume reload`)
-- **F1** opens the mechanism HUD: topic → intent, Scheme verdict, line source (LLM / cache / script), model name, and prefill/decode throughput. Set `THEFORD_MECHANISM=0` to hide it.
-- **F8** opens the GM console: `time 11:00` jumps the clock, `speed 10` accelerates time, `weather rain` pins the weather, `npc smith inn-yard` overrides a schedule, `people` dumps state, `bag` toggles the bag panel, `give ore 3` injects items, `equip axe` equips a tool, `volume` / `volume reload` inspect the mix, `hp` / `hurt 10` / `heal` inspect or change health, `slime smith` lures a slime to a villager, `restart` respawns, `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` replay the acceptances. Type `help` for every command.
+- **F1** opens the mechanism HUD: topic → intent, Scheme verdict, line source (LLM / cache / script), model name, quality level, and prefill/decode throughput. Set `THEFORD_MECHANISM=0` to hide it.
+- **F8** opens the GM console: `time 11:00` jumps the clock, `speed 10` accelerates time, `weather rain` pins the weather, `npc smith inn-yard` overrides a schedule, `people` dumps state, `bag` toggles the bag panel, `give ore 3` injects items, `equip axe` equips a tool, `volume` / `volume reload` inspect the mix, `quality off|medium` inspects/changes the AI level, `hp` / `hurt 10` / `heal` inspect or change health, `slime smith` lures a slime to a villager, `restart` respawns, `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` replay the acceptances. Type `help` for every command.
 - Natural language works too: type `让老王去酒馆` or `把时间暂停` and the local model translates it into one deterministic command (`npc smith inn-yard drinking`, `speed 0`), which is then executed and shown in the log. Generation is grammar-constrained, so the model can only emit a valid command.
 - The GM tooling is a self-contained module: for a release build, delete `scripts/gm/` and `scheme/game/gm.scm`, then remove the `(require "game.gm")` line from `scheme/game/main.scm`. The game itself does not depend on it.
 

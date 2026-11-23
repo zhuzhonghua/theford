@@ -44,6 +44,8 @@ const HELP := "GM 指令（F8 开关）:
   volume music 30 / volume sfx 70
   volume open / close       开关音量滑条面板（等同 O 键）
   volume reload             从 settings.cfg 重读（验证重开保持）
+  quality                   查看 AI 档位（off|low|medium|high）
+  quality off               切换 AI 档位（0-3 也接受；off 不请求模型）
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   equip axe                 把背包里的斧头装备到手上（影响 F 动词）
   unequip                   卸下手中工具（物品留在背包里）
@@ -62,7 +64,7 @@ LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
-		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "nl"]
+		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -134,6 +136,7 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"bag": return _bag(rest)
 		"quest": return _quest(rest)
 		"volume": return await _volume(rest)
+		"quality": return await _quality(rest)
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
 		"unequip": return await _unequip()
@@ -181,11 +184,11 @@ func _state() -> String:
 			var o: Dictionary = overrides[id]
 			bits.append("%s=%s" % [id, o.get("anchor", "")])
 		override = ", ".join(bits)
-	return "第 %d 天 %02d:%02d   天气：%s\n%s   矿石 x%d\n时间速度：x%.1f\nGM 覆盖：%s" % [
+	return "第 %d 天 %02d:%02d   天气：%s\n%s   矿石 x%d\n时间速度：x%.1f\nGM 覆盖：%s\nAI 档位：%s" % [
 			int(s.get("day", 1)), int(s.get("hour", 8)), int(s.get("minute", 0)),
 			_weather_name(str(s.get("weather", "sun"))),
 			str(s.get("quest_text", "")), int(s.get("carried", 0)),
-			tick_rate, override]
+			tick_rate, override, _quality_name()]
 
 func _time(args: PackedStringArray) -> String:
 	var s := Game.snapshot
@@ -426,6 +429,31 @@ func _volume_state() -> String:
 		var bus: String = Audio.bus_for_key(key)
 		lines.append("%s %d%%" % [pair[1], roundi(Audio.get_bus_volume(bus) * 100.0)])
 	return "\n".join(lines) + ("（已存盘）" if Audio.volume_saved else "")
+
+## AI quality is the player's setting, not save state: it comes from
+## THEFORD_AI_QUALITY at boot and can be switched here (a deterministic twin of
+## the options screens the reference keeps outside saves). Switching up from
+## off boots the model on the worker thread; switching down keeps it loaded but
+## stops asking (learned lines from higher tiers still answer).
+func _quality(args: PackedStringArray) -> String:
+	if args.is_empty():
+		return "AI 档位：%s（quality off|low|medium|high；0-3 也可）" % _quality_name()
+	var q := args[0].to_lower()
+	match q:
+		"0": q = "off"
+		"1": q = "low"
+		"2": q = "medium"
+		"3": q = "high"
+	if not ["off", "low", "medium", "high"].has(q):
+		return "用法：quality [off|low|medium|high|0-3]"
+	var info: Variant = await Game.call_async("game:set-ai-quality", [q])
+	if not (info is Array):
+		return "AI 档位切换失败"
+	var loaded := "模型已加载" if bool(info[1]) else "模型未加载（预置台词）"
+	return "AI 档位 → %s（%s）" % [_quality_name(), loaded]
+
+func _quality_name() -> String:
+	return str(Game.snapshot.get("ai_quality", "medium"))
 
 ## Dev-only item injection, so the panel's live refresh can be exercised
 ## without walking to a pickup. Goes through Scheme's bag-add! like every

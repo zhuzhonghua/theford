@@ -10,6 +10,7 @@
 ;;
 ;; API used by scripts/game_bridge.gd (defined in the modules below):
 ;;   game:set-model-path path   (llm.scm)
+;;   game:set-ai-quality level  (llm.scm) off|low|medium|high; returns engine-info
 ;;   game:boot                  (llm.scm)
 ;;   game:npc-ids               (npcs.scm)
 ;;   game:topics npc-id         (talk.scm)

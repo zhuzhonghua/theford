@@ -219,7 +219,7 @@
             (cons "{text}" text)))))
 
 (define (game:gm-plan text)
-  (if (not *use-llm*)
+  (if (not (ai-asks?))
       ""
       (gm-fix-plan text
                    (gm-clean-plan (generate-command (gm-build-prompt text) 48)))))
@@ -233,7 +233,7 @@
                                (list (cons 'parse-special #t)))))
 
 (define (game:debug-gm-raw text)
-  (if (not *use-llm*)
+  (if (not (ai-asks?))
       ""
       (gm-clean-plan (generate-command-free (gm-build-prompt text) 48))))
 
