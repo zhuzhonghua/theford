@@ -255,6 +255,15 @@ func _absorb(fn: String, result: Variant) -> void:
 				_write_snapshot(result[0], result[1], result.slice(2))
 			# Even an unchanged status needs a repaint: last_turn was cleared.
 			snapshot_changed.emit()
+		"game:load":
+			# (ok status) — a load replaces every state module, so drop the
+			# per-turn trace and any half-open container view with it.
+			snapshot["last_turn"] = {}
+			snapshot["container"] = {}
+			if result is Array and result.size() == 2:
+				if result[1] is Array and result[1].size() == 6:
+					_write_snapshot(result[1][0], result[1][1], result[1].slice(2))
+			snapshot_changed.emit()
 		"game:engine-info", "game:set-ai-quality":
 			_write_engine(result)
 		"game:people":
@@ -408,6 +417,27 @@ func reload_data() -> Variant:
 	# reply, so ask for both before the shell repaints.
 	send("game:bag")
 	send("game:hp")
+	return result
+
+## Write a `table`-DSL Scheme source save. `host` is the host-owned map and body
+## positions; Scheme writes it into the same file as a quoted literal. A failed
+## call returns null (the worker boundary reports the Scheme error).
+func save_state(path: String, host: Variant) -> Variant:
+	return await call_async("game:save", [path, host])
+
+## Read the host slot only, without touching game state. Used before rebuilding
+## the map, since the saved entity state must land after that rebuild.
+func peek_save(path: String) -> Variant:
+	return await call_async("game:peek-save", [path])
+
+## Apply the save. Worker calls are FIFO, so the view refreshes queued after the
+## await are guaranteed to see restored state.
+func load_state(path: String) -> Variant:
+	var result: Variant = await call_async("game:load", [path])
+	send("game:bag")
+	send("game:hp")
+	send("game:people")
+	send("game:quests")
 	return result
 
 func _push(msg: Dictionary) -> void:

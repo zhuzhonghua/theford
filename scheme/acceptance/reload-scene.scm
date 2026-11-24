@@ -1,4 +1,4 @@
-;;; 回归验收：热重载（F5 / GM reload）要连当前场景一起回到开局。
+;;; 回归验收：热重载（GM reload）要连当前场景一起回到开局。
 ;;; GM 中输入：load reload-scene
 ;;;
 ;;; 砍倒村口那棵树留下树桩，再 reload。之前只重置 Scheme 的时钟/任务/背包，
@@ -9,7 +9,7 @@
 
 (define (acceptance:steps)
   (list
-    (list "note" "热重载回归：先砍倒一棵树，再按 F5 看它会不会变回树" "2.6")
+    (list "note" "热重载回归：先砍倒一棵树，再用 GM reload 看它会不会变回树" "2.6")
     (list "gm" "speed 0")
     (list "place" "village" "village:riverbank")
     (list "assert-map" "village")

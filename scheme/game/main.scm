@@ -40,6 +40,9 @@
 ;;   game:hp                    (combat.scm) player (hp max-hp down?) for hearts
 ;;   game:creature-bite c t     (combat.scm) a creature bites a target via the rules
 ;;   game:debug-hurt n          (combat.scm) deterministic damage (GM/acceptance)
+;;   game:save path host        (save.scm) write a `table`-DSL Scheme source save
+;;   game:peek-save path        (save.scm) read the host slot without applying state
+;;   game:load path             (save.scm) load that source, returns (ok status)
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
 ;; the canned reply table, and the quest still completes end to end.
@@ -64,6 +67,7 @@
 ;;   quest.scm  multi-quest state machine, objectives, rewards/xp, history
 ;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
+;;   save.scm   snapshot / restore of run-time state (host writes it to disk)
 ;;
 ;; The village map/NPC placement is authored in Godot (scenes/world.tscn);
 ;; Scheme only owns game state.
@@ -88,6 +92,8 @@
 ; Optional debug module (see gm.scm). Remove this line and the file to ship
 ; without the GM console; nothing else references it.
 (require "game.gm")
+;; Loaded last: the snapshot touches every state module above.
+(require "game.save")
 
 ;; ---- aggregated status -------------------------------------------------------
 ;; (quest-text carried day hour minute weather) — one reply feeds the whole HUD.

@@ -7,6 +7,7 @@ extends Node2D
 ## All game state lives in the Scheme VM; this script only renders consequences.
 
 const TILE := 16
+const SAVE_PATH := "user://save1.scm"
 const TICK_SECONDS := 0.1
 const PEOPLE_SECONDS := 1.0
 const NPC_SPEED := 40.0
@@ -51,6 +52,7 @@ const ContainerPanel := preload("res://scripts/container_panel.gd")
 const GameOver := preload("res://scripts/game_over.gd")
 const QuestPanel := preload("res://scripts/quest_panel.gd")
 const VolumePanel := preload("res://scripts/volume_panel.gd")
+const StartMenu := preload("res://scripts/start_menu.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
@@ -60,8 +62,11 @@ var container_ui: ContainerPanel = null
 var game_over_ui: GameOver = null
 var quest_ui: QuestPanel = null
 var volume_ui: VolumePanel = null
+var start_menu: StartMenu = null
 var gm: Node = null
 var _restarting := false
+var _saving := false
+var _loading := false
 var _tick_accumulator := 0.0
 var _people_accumulator := 0.0
 var _effects_accumulator := 0.0
@@ -89,7 +94,7 @@ var _log_history: Array[String] = []
 var _last_log := ""
 var _verb_hint := ""
 var _effects_polling := false
-var _reloading := false   # ignore a second F5 while the first reload is in flight
+var _reloading := false   # ignore a second reload while one is in flight
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -121,6 +126,9 @@ func _ready() -> void:
 	volume_ui = VolumePanel.new()
 	add_child(volume_ui)
 	volume_ui.setup(font)
+	start_menu = StartMenu.new()
+	add_child(start_menu)
+	start_menu.setup(font, _continue_game, _restart_game)
 	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
@@ -129,13 +137,7 @@ func _ready() -> void:
 	_setup_weather()
 	Game.snapshot_changed.connect(_refresh_hud)
 	if Game.booted:
-		_refresh_hud()
-		_start_bgm()
-		Game.send("game:people")
-		Game.send("game:bag")
-		Game.send("game:hp")
-		_check_anchors()
-		_maybe_autoplay_acceptance()
+		_after_bridge_ready()
 	else:
 		Game.bridge_ready.connect(_on_bridge_ready)
 	_maybe_run_headless_demo()
@@ -152,6 +154,9 @@ func _maybe_autoplay_acceptance() -> void:
 ## The world is static now, so it is ready immediately. Only the HUD text
 ## depends on the Scheme thread (bridge_ready).
 func _on_bridge_ready(_llm: bool) -> void:
+	_after_bridge_ready()
+
+func _after_bridge_ready() -> void:
 	_refresh_hud()
 	_start_bgm()
 	Game.send("game:people")
@@ -159,7 +164,11 @@ func _on_bridge_ready(_llm: bool) -> void:
 	Game.send("game:hp")
 	Game.send("game:quests")
 	_check_anchors()
-	_maybe_autoplay_acceptance()
+	if OS.get_environment("THEFORD_ACCEPTANCE") != "":
+		# Headless playback needs the world unobstructed; the menu is mouse-only.
+		_maybe_autoplay_acceptance()
+	else:
+		start_menu.open(FileAccess.file_exists(SAVE_PATH))
 
 ## Optional GM console: the file is the whole debug module (see scripts/gm/).
 func _setup_gm(font: Font) -> void:
@@ -1098,6 +1107,98 @@ func hot_reload() -> void:
 	_refresh_hud()
 	_reloading = false
 
+## ---- save / load -----------------------------------------------------------
+## The save file is Scheme source written in the project's `table` DSL. Scheme
+## owns every gameplay value; the host contributes only the map and body
+## positions, which it passes in when saving and reads back with peek before
+## rebuilding the map. A failed read reports a message instead of failing quiet.
+
+func _save_host() -> Array:
+	var npcs := []
+	for id in _npc_state.keys():
+		var npc := _npc_by_id(str(id))
+		if npc == null or not is_instance_valid(npc):
+			continue
+		var st: Dictionary = _npc_state[id]
+		npcs.append([str(id), npc.position.x, npc.position.y, npc.visible,
+				str(st.get("anchor", "")), str(st.get("activity", ""))])
+	var pos := Vector2.ZERO if not is_instance_valid(player) else player.position
+	return [_current_map_id, [pos.x, pos.y], npcs]
+
+func quick_save() -> bool:
+	if _saving or _loading or not Game.booted:
+		return false
+	_saving = true
+	var path := ProjectSettings.globalize_path(SAVE_PATH)
+	var ok: Variant = await Game.save_state(path, _save_host())
+	if ok == null:
+		_log_line("存档失败：Scheme 写入出错")
+		_saving = false
+		return false
+	_log_line("已存档：" + SAVE_PATH)
+	_saving = false
+	return true
+
+func _restore_npc_positions(rows: Variant) -> void:
+	if not (rows is Array):
+		return
+	for row in rows:
+		if not (row is Array) or row.size() < 6:
+			continue
+		var id := str(row[0])
+		var npc := _npc_by_id(id)
+		if npc == null or not is_instance_valid(npc):
+			continue
+		npc.position = Vector2(float(row[1]), float(row[2]))
+		npc.visible = bool(row[3])
+		_npc_state[id] = {
+			"anchor": str(row[4]),
+			"activity": str(row[5]),
+			"path": PackedVector2Array(),
+			"step": 0,
+		}
+
+func quick_load() -> bool:
+	if _loading or _saving or not Game.booted:
+		return false
+	if not FileAccess.file_exists(SAVE_PATH):
+		_log_line("读档失败：没有存档")
+		return false
+	var path := ProjectSettings.globalize_path(SAVE_PATH)
+	var host: Variant = await Game.peek_save(path)
+	if not (host is Array) or (host as Array).size() < 3:
+		_log_line("读档失败：存档损坏或版本不兼容")
+		return false
+	_loading = true
+	Modals.close_all()
+	# Speed is a debug preference, not world state: a load leaves it as the
+	# player set it (a paused run stays paused after reading a save).
+	# Rebuild the map first: registering scene entities clears Scheme's registry,
+	# so the saved entity state must land afterwards or a cut tree would spring
+	# back. Saved body positions go on top of the freshly instantiated scene.
+	var host_rows: Array = host
+	var map_id := str(host_rows[0])
+	await _switch_map(map_id, "")
+	var pp: Variant = host_rows[1]
+	if pp is Array and (pp as Array).size() >= 2 and is_instance_valid(player):
+		player.position = Vector2(float(pp[0]), float(pp[1]))
+	_restore_npc_positions(host_rows[2])
+	var result: Variant = await Game.load_state(path)
+	if not (result is Array) or result.is_empty() or not bool(result[0]):
+		_log_line("读档失败：存档内容不兼容")
+		_loading = false
+		return false
+	await Game.call_async("game:hp")
+	_refresh_hud()
+	_log_line("已读档：第 %d 天 %02d:%02d" % [
+		int(Game.snapshot.get("day", 1)), int(Game.snapshot.get("hour", 0)),
+		int(Game.snapshot.get("minute", 0))])
+	_loading = false
+	return true
+
+func _continue_game() -> void:
+	await quick_load()
+
 ## Godot-side view of an entity, for acceptance. Scheme's view is read through
 ## game:debug-entity; this one catches a scene that still paints a stump after
 ## Scheme already says "tree".
@@ -1171,7 +1272,7 @@ func _refresh_hud() -> void:
 	elif _verb_hint != "":
 		hint = _verb_hint
 	elif not (mech != null and mech.is_showing()):
-		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   O 音量   F1 机制   F5 热重载" + ("   F8 GM" if gm != null else "")
+		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   O 音量   F1 机制   F5 存档   F9 读档" + ("   F8 GM" if gm != null else "")
 	var quality := str(Game.snapshot.get("ai_quality", "medium"))
 	var llm_state := "LLM：本地推理" if Game.use_llm else "LLM：预置台词"
 	if quality != "":
@@ -1415,8 +1516,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F5:
-			# Fire-and-forget: state, scene and HUD refresh when the reply lands.
-			hot_reload()
+			# Fire-and-forget: the file lands on the worker's next batch.
+			quick_save()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_F9:
+			quick_load()
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F and not Modals.is_modal_open():

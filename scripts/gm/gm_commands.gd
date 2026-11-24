@@ -34,7 +34,9 @@ const HELP := "GM 指令（F8 开关）:
   goto smithy-door          传送到锚点
   anchors                   列出全部锚点
   talk smith                传送到老王身边并打开对话
-  reload                    热重载（等同 F5，当前场景一起回到开局）
+  reload                    热重载（当前场景一起回到开局；F5 已改为存档）
+  save                      快存到 user://save1.scm（等同 F5）
+  loadgame                  从存档读档（等同 F9）
   bag                       开关背包面板（等同 I 键）
   bag open / bag close      打开或关闭背包面板
   quest                     查看任务进度 / 开关任务日志（等同 J 键）
@@ -65,7 +67,8 @@ LLM 会把它翻译成上面的一条指令再执行。"
 
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
-		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl", "prompt"]
+		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl", "prompt",
+		"save", "loadgame"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -134,6 +137,8 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"anchors": return _anchors()
 		"talk": return await _talk(rest)
 		"reload": return await _reload()
+		"save": return await _save_game()
+		"loadgame": return await _load_game()
 		"bag": return _bag(rest)
 		"quest": return _quest(rest)
 		"volume": return await _volume(rest)
@@ -341,6 +346,15 @@ func _reload() -> String:
 	tick_rate = 1.0
 	await main.hot_reload()
 	return "已热重载：时钟、任务、背包与当前场景都回到开局"
+
+func _save_game() -> String:
+	var ok: bool = await main.quick_save()
+	return "已存档到 user://save1.scm" if ok else "存档失败"
+
+func _load_game() -> String:
+	var ok: bool = await main.quick_load()
+	overrides.clear()
+	return "已读档" if ok else "读档失败（没有存档或格式不兼容）"
 
 ## Open/close the inventory panel from the console. Same panel the I key
 ## toggles; useful for acceptance scripts and screenshots.

@@ -854,6 +854,58 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：情境行已变化\n%s → %s" % [before, after]
 			if before == "" or before == after:
 				return "情境行没有变化（%s）" % after
+		"assert-save-exists":
+			var save_path := "user://save1.scm"
+			if step.size() >= 2:
+				save_path = str(step[1])
+			_current.text = "断言：存档存在 " + save_path
+			if not FileAccess.file_exists(save_path):
+				return "存档不存在：" + save_path
+		"assert-save-text":
+			if step.size() < 2:
+				return "assert-save-text 需要片段"
+			var sf := FileAccess.open("user://save1.scm", FileAccess.READ)
+			if sf == null:
+				return "读不到存档"
+			var save_text := sf.get_as_text()
+			sf.close()
+			var fragment := str(step[1])
+			_current.text = "断言：存档源码含「%s」" % fragment
+			if not save_text.contains(fragment):
+				return "存档里没有「%s」" % fragment
+		"delete-save":
+			var dir := DirAccess.open("user://")
+			if dir != null and dir.file_exists("save1.scm"):
+				dir.remove("save1.scm")
+			_current.text = "删除存档（模拟从未玩过）"
+		"assert-clock":
+			if step.size() < 2:
+				return "assert-clock 缺少时间"
+			var wd := -1
+			var wh := -1
+			var wm := -1
+			if step.size() >= 4:
+				wd = int(step[1]); wh = int(step[2]); wm = int(step[3])
+			else:
+				var parts := str(step[1]).split(":")
+				if parts.size() >= 2:
+					wh = int(parts[0]); wm = int(parts[1])
+				else:
+					# Hour-only check: GM reload briefly resumes time before a
+					# later `speed 0` lands, so the minute may have ticked on.
+					wh = int(parts[0])
+				if step.size() >= 3:
+					wd = int(step[2])
+			var hd := int(Game.snapshot.get("day", 1))
+			var hh := int(Game.snapshot.get("hour", 0))
+			var hm := int(Game.snapshot.get("minute", 0))
+			_current.text = "断言：时钟 = 第 %d 天 %02d:%02d" % [hd, hh, hm]
+			if wd >= 0 and hd != wd:
+				return "期望第 %d 天，实际第 %d 天" % [wd, hd]
+			if wh >= 0 and hh != wh:
+				return "期望 %d 点，实际 %d 点" % [wh, hh]
+			if wm >= 0 and hm != wm:
+				return "期望 %d 分，实际 %d 分" % [wm, hm]
 		_:
 			return "未知操作：" + op
 	return ""

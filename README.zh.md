@@ -64,11 +64,15 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
   （`volume master 50`、`volume music 30`、`volume sfx 70`、`volume reload`）
 - **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
   模型名与 AI 档位、prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
+- **F5** 快存、**F9** 快读，单槽位写在 `user://save1.scm`：存档是用项目自己的 `table` DSL 写成的
+  Scheme 源码，背包、任务、时钟、天气、生命、learned 台词、当前地图与人物站位都能往返；读档失败会显示提示。
+  启动时弹出「继续游戏 / 新游戏」菜单（无存档时继续置灰）。热重载只用 GM `reload`，F5 不再是热重载
 - **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
   `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；
   `bag` 开关背包面板、`give ore 3` 塞物品、`equip axe` 装备工具、`volume` 查看音量、
   `quality off|medium` 查看或切换 AI 档位，`prompt smith village` 把该回合的 LLM prompt 打到控制台（含时辰/天气/日程情境行）；
-  `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开；
+  `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开、
+  `save` 快存 / `loadgame` 快读 / `reload` 热重载；
   `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` 回放验收；输入 `help` 看全部指令
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
