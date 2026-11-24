@@ -43,7 +43,7 @@
 (require "game.util")
 (require "game.data.dialogue")
 
-(define *quest-order* '(smith-ore apothecary-herbs))
+(define *quest-order* '(smith-ore apothecary-herbs clues ferry))
 
 (define *quests*
   (table
@@ -187,4 +187,157 @@
                                 (xp = 20)
                                 (items = (list
                                            (table (type = "item/food/meat") (count = 2))))))
+                    (complete = #t)))))
+
+    ;; ---- Act 2: 谁剪的（张掌柜）----------------------------------------------
+    (clues
+      (title = "谁剪断了缆绳")
+      (giver = 'innkeeper)
+      (start = 10)
+      (pack-item = "线索")
+      (accept-text = "我帮你问问河滩上到底出了什么事。")
+      (give-text = "河滩的痕迹我都看过了。")
+      (objective-order = '(ask mud rope))
+      (hints = (table
+                 (accepted = "张掌柜的线索有了着落，简短回应。")
+                 (rejected = "张掌柜必须拒绝，例如：这事你还没答应帮忙呢。")
+                 (ignored = "只是闲聊，张掌柜正常回应即可。")))
+      (reasons = (table
+                   (accept-ok = "玩家答应帮张掌柜打听渡船的事")
+                   (accept-dup = "这事已经答应过了")
+                   (accept-done = "线索已经查清了")
+                   (talk-progress = "问清了客人过不来的原委")
+                   (target-progress = "查看过河滩上的痕迹")
+                   (idle = "闲聊，不动状态")))
+      (objectives = (table
+                      (ask
+                        (text = "问问张掌柜客人为何过不来")
+                        (kind = 'talk)
+                        (need = 1))
+                      (mud
+                        (text = "查看河滩泥印")
+                        (kind = 'target)
+                        (target = "river-mud")
+                        (need = 1))
+                      (rope
+                        (text = "查看断口整齐的缆绳")
+                        (kind = 'target)
+                        (target = "rope-end")
+                        (need = 1))))
+      (stages = (table
+                  (10
+                    (state = 'not-offered)
+                    (greet = "张掌柜：客官住店？唉，渡船一断，屋里空了一半。")
+                    (quest-text = "任务：未接（找张掌柜打听渡船的事）")
+                    (say-reject = "这事你还没答应帮忙呢。")
+                    (on-accept = 20)
+                    (topics = (append *default-topics*
+                                      '((quest . "接任务")))))
+                  (20
+                    (state = 'accepted)
+                    (greet = "张掌柜：河滩上留有痕迹，你去瞧瞧，兴许能看出点门道。")
+                    (quest-text = "任务：查查渡船断缆（先问清张掌柜的难处）")
+                    (objective = 'ask)
+                    (say-reject = "先听我把话说完呀。")
+                    (topics-empty = (append *default-topics*
+                                            '((quest . "问问渡船的事"))))
+                    (say = "三天前夜里，河滩上有水声，可第二天谁都没见人。客人们过不来，我这店的灯火都省着点。")
+                    (on-talk-complete = 30))
+                  (30
+                    (state = 'accepted)
+                    (greet = "张掌柜：滩上的泥印还在，去看看吧。")
+                    (quest-text = "任务：查看河滩泥印")
+                    (objective = 'mud)
+                    (say-reject = "泥印还没看呢。")
+                    (topics-empty = (append *default-topics*
+                                            '((quest . "聊聊线索"))))
+                    (say = "河滩上有半串泥印，从水里上来，又折回村里。")
+                    (on-target-complete = 40))
+                  (40
+                    (state = 'accepted)
+                    (greet = "张掌柜：缆绳断口就在滩边那截木桩上。")
+                    (quest-text = "任务：查看断口整齐的缆绳")
+                    (objective = 'rope)
+                    (say-reject = "缆绳的断口还没瞧清楚呢。")
+                    (topics-empty = (append *default-topics*
+                                            '((quest . "聊聊线索"))))
+                    (say = "断口齐得不像磨断的，是有人用刀割的。")
+                    (on-target-complete = 100))
+                  (100
+                    (state = 'completed)
+                    (greet = "张掌柜：原来如此。那孩子……唉，去问问老王吧。")
+                    (quest-text = "任务：完成！ clues 齐了，去问老王修船。")
+                    (say-reject = "线索都查清了，快去忙吧。")
+                    (topics = *default-topics*)
+                    (say = "泥印、断缆，还有村口那孩子躲闪的样子——你心里大概有数了。去跟老王合计合计怎么修船吧。")
+                    (reward = (table (xp = 40)))
+                    (complete = #t)))))
+
+    ;; ---- Act 3: 重开渡河（老王）----------------------------------------------
+    (ferry
+      (title = "重开渡船")
+      (giver = 'smith)
+      (start = 10)
+      (pack-item = "缆绳")
+      (accept-text = "交给我吧，我去跟阿笋谈谈。")
+      (give-text = "缆绳接好了。")
+      (objective-order = '(confront wire))
+      (hints = (table
+                 (accepted = "老王的渡船有了希望，简短回应。")
+                 (rejected = "老王必须拒绝，例如：这事还没托付你呢。")
+                 (ignored = "只是闲聊，老王正常回应即可。")))
+      (reasons = (table
+                   (accept-ok = "玩家答应帮忙重开渡船")
+                   (accept-dup = "修船的事已经答应过了")
+                   (accept-done = "渡船已经重开")
+                   (target-progress = "渡船又近了一步")
+                   (idle = "闲聊，不动状态")))
+      (objectives = (table
+                      (confront
+                        (text = "找阿笋问明缘由")
+                        (kind = 'target)
+                        (target = "axun")
+                        (need = 1))
+                      (wire
+                        (text = "接好绞盘上的缆绳")
+                        (kind = 'target)
+                        (target = "winch")
+                        (need = 1))))
+      (stages = (table
+                  (10
+                    (state = 'not-offered)
+                    (greet = "老王：哼，缆绳的事查清楚了？那船总不能一直搁着。")
+                    (quest-text = "任务：未接（找老王修船）")
+                    (say-reject = "修船的事你还没答应帮忙呢。")
+                    (on-accept = 20)
+                    (topics = (append *default-topics*
+                                      '((quest . "接任务")))))
+                  (20
+                    (state = 'accepted)
+                    (greet = "老王：先去问问阿笋，那孩子心里有结。别吓着他。")
+                    (quest-text = "任务：找阿笋问明缘由")
+                    (objective = 'confront)
+                    (say-reject = "先去跟阿笋说说话。")
+                    (topics-empty = (append *default-topics*
+                                            '((quest . "聊聊修船"))))
+                    (say = "他那船是他爹留下的。剪缆绳，怕的是有人把船拖走。你去听听他怎么说。")
+                    (on-target-complete = 30))
+                  (30
+                    (state = 'accepted)
+                    (greet = "老王：绞盘在滩边，缆绳我留了一截。去接上吧。")
+                    (quest-text = "任务：接好绞盘上的缆绳")
+                    (objective = 'wire)
+                    (say-reject = "缆绳还没接呢。")
+                    (topics-empty = (append *default-topics*
+                                            '((quest . "聊聊修船"))))
+                    (say = "船还是那条船。修好了，谁也拖不走。")
+                    (on-target-complete = 100))
+                  (100
+                    (state = 'completed)
+                    (greet = "老王：第一班渡船明早就开。你那封信，也该送到了。")
+                    (quest-text = "任务：完成！渡船重开，信送到了对岸。")
+                    (say-reject = "渡船都开了，快去忙你的吧。")
+                    (topics = *default-topics*)
+                    (say = "得嘞，缆绳接好了。明早头一班渡船，我亲自撑。")
+                    (reward = (table (xp = 50)))
                     (complete = #t)))))))

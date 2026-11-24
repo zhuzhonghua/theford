@@ -31,11 +31,12 @@
       (scene = "scenes/world.tscn")
       (anchors = '("herb-garden" "apothecary-stand" "herb-1" "herb-2" "herb-3" "herb-4" "herb-5" "herb-6"
                    "inn" "inn-yard" "riverbank" "village-square"
-                   "smith-home" "apothecary-home" "innkeeper-home" "smithy-door"))
+                   "smith-home" "apothecary-home" "innkeeper-home" "smithy-door"
+                   "river-mud" "rope-end" "winch" "axun-stand" "axun-spot"))
       (portals = (list
                    (table (id = 'to-smithy) (to = 'smithy)
                           (at = "smithy:door") (label = "铁匠铺"))))
-      (npcs = '("smith" "apothecary" "innkeeper")))
+      (npcs = '("smith" "apothecary" "innkeeper" "axun")))
     (smithy
       (name = "铁匠铺")
       (zone = "peaceful")

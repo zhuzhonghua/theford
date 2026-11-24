@@ -72,6 +72,7 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
   斧头 3 下（power 3 对 8 血）击杀，掉落的凝胶会被磁吸进背包。HUD 顶行显示生命 `♥ 10/10`；
   生命归零出现结束画面（带死亡音效），按 **R** 从河口出生点重开
 - 村民看到史莱姆会**逃跑**，威胁离开后回到自己的日程
+- **三幕剧情**：走到河滩自动开场 → 交完矿石后老王重铸绞盘 → 找张掌柜接「谁剪断了缆绳」（问原委、看泥印、看断缆）→ 找老王接「重开渡船」（问阿笋、接缆绳）→ 渡船重开、信送到对岸。剧情节点由 `scheme/game/story.scm` 的 beat/fact 决断，演出时按 E/Enter 逐句推进、Esc 跳过；剧情事实也进 NPC 的 prompt
 - 铁匠老王：接任务 → 捡 3 块铁矿石 → 交任务 → 完结
 - 陈婆/张掌柜：纯对话（本地 LLM 生成，逐次不同）
 - **音频**：村庄 BGM 循环播放；脚步声跟着实际走过的距离响（音高微随机）；下雨时雨声淡入、
@@ -83,15 +84,17 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - **F1** 打开"机制 HUD"：话题 → 意图、Scheme 判定、台词来源（LLM / 缓存 / 剧本）、
   模型名与 AI 档位、prefill/decode 速度；`THEFORD_MECHANISM=0` 可关闭
 - **F5** 快存、**F9** 快读，单槽位写在 `user://save1.scm`：存档是用项目自己的 `table` DSL 写成的
-  Scheme 源码，背包、任务、时钟、天气、生命、learned 台词、当前地图与人物站位都能往返；读档失败会显示提示。
+  Scheme 源码，背包、任务、剧情事实、时钟、天气、生命、learned 台词、当前地图与人物站位都能往返；读档失败会显示提示。
   启动时弹出「继续游戏 / 新游戏」菜单（无存档时继续置灰）。热重载只用 GM `reload`，F5 不再是热重载
 - **F8** 打开 GM 控制台：`time 11:00` 跳时钟、`speed 10` 加速时间、
   `weather rain` 强制天气、`npc smith inn-yard` 覆盖日程、`people` 查看状态；
   `bag` 开关背包面板、`give ore 3` 塞物品、`equip axe` 装备工具、`volume` 查看音量、
   `quality off|medium` 查看或切换 AI 档位，`prompt smith village` 把该回合的 LLM prompt 打到控制台（含时辰/天气/日程情境行）；
+  `story` 查看剧情事实、`story beat <id>` 手动触发 beat；
   `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开、
   `save` 快存 / `loadgame` 快读 / `reload` 热重载；
-  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` 回放验收；输入 `help` 看全部指令
+  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` / `load story` / `load story-chain` 回放验收；输入 `help` 看全部指令。
+  终端里用 `THEFORD_ACCEPTANCE=<name> THEFORD_ACCEPTANCE_QUIT=1` 无头回放会自动快跑（演出等待压缩、打字机直显，通常几秒到二十秒）；在窗口里用 GM `load` 手动观看则保持正常节奏
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
   生成受 grammar 约束，模型只能输出合法指令

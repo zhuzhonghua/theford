@@ -15,6 +15,7 @@
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
+(require "game.story")
 
 ;; ---- topic menu per NPC, depending on its quest's state ---------------------
 ;; The quest giver's menu comes from the current stage's data (the accepted
@@ -90,6 +91,7 @@
             (cons "{weather}" (situation-label *weather-labels* (current-weather)))
             (cons "{who}" (npc-display npc))
             (cons "{activity}" (situation-label *activity-labels* activity))
+            (cons "{story}" (story:prompt-line))
             (cons "{history}" (hist-recent (or qid 'chat) npc 6))
             (cons "{player}" player-text)))))
 

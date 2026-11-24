@@ -49,6 +49,10 @@ const HELP := "GM 指令（F8 开关）:
   quality                   查看 AI 档位（off|low|medium|high）
   quality off               切换 AI 档位（0-3 也接受；off 不请求模型）
   prompt smith village      打印该回合送进 LLM 的 prompt（看情境行；改天气/时钟后再打一次对比）
+  story                     查看剧情事实 / 最近 beat
+  story beat <id>           手动触发一个 beat（验收用；生产时由时钟/位置触发）
+  story place <anchor>      覆盖玩家所在锚点（调试用）
+  story fact <key> <value>  写一个非保护 fact（调试用）
   give ore 3                往背包塞物品（调试用；ore/log/axe 可简写）
   equip axe                 把背包里的斧头装备到手上（影响 F 动词）
   unequip                   卸下手中工具（物品留在背包里）
@@ -68,7 +72,7 @@ LLM 会把它翻译成上面的一条指令再执行。"
 const GM_COMMANDS := ["state", "time", "day", "speed", "weather", "people", "npc",
 		"tp", "goto", "anchors", "talk", "reload", "bag", "give", "equip", "unequip",
 		"hp", "hurt", "heal", "restart", "slime", "quest", "volume", "quality", "nl", "prompt",
-		"save", "loadgame"]
+		"save", "loadgame", "story"]
 
 ## Short names the GM `give` command accepts; anything else is treated as a
 ## full type id ("item/material/ore").
@@ -143,6 +147,7 @@ func _direct(cmd: String, rest: PackedStringArray) -> String:
 		"quest": return _quest(rest)
 		"volume": return await _volume(rest)
 		"quality": return await _quality(rest)
+		"story": return await _story(rest)
 		"prompt": return await _prompt(rest)
 		"give": return await _give(rest)
 		"equip": return await _equip(rest)
@@ -526,6 +531,47 @@ func _unequip() -> String:
 	Game.send("game:bag")
 	var name := str(old) if old != null else ""
 	return ("已卸下：" + name + "（物品仍在背包）") if name != "" else "手上没有装备"
+
+## --- story debug ------------------------------------------------------------
+## The story engine owns its facts; these commands are read-only except for the
+## explicit debug writes. Protected prefixes (seen./ford./...) are refused by
+## Scheme, so a console command cannot forge story progress.
+
+func _story(args: PackedStringArray) -> String:
+	if args.is_empty() or args[0] == "facts":
+		var facts: Variant = await Game.call_async("game:story-facts", [])
+		var status: Variant = await Game.call_async("game:story-status", [])
+		var place := str(status[1]) if status is Array and status.size() >= 2 else ""
+		var last := str(status[2]) if status is Array and status.size() >= 3 else ""
+		var parts: Array[String] = []
+		if facts is Array:
+			for row in facts:
+				if row is Array and row.size() >= 2:
+					parts.append("%s=%s" % [str(row[0]), str(row[1])])
+		return "剧情：位置=%s，最近=%s\n事实：%s" % [
+				place, last if last != "" else "无",
+				"、".join(parts) if not parts.is_empty() else "（暂无）"]
+	match args[0]:
+		"beat":
+			if args.size() < 2:
+				return "用法：story beat <arrive|winch-ready|...>"
+			var fired: Variant = await Game.call_async("game:debug-story-beat", [args[1]])
+			Game.send("game:story-status")
+			main._poll_effects()
+			return ("已触发 beat：" + args[1]) if bool(fired) else ("beat 不存在或已播过：" + args[1])
+		"place":
+			if args.size() < 2:
+				return "用法：story place <anchor>"
+			var place: Variant = await Game.call_async("game:story-place", [args[1]])
+			Game.send("game:story-status")
+			return "剧情位置：" + str(place)
+		"fact":
+			if args.size() < 3:
+				return "用法：story fact <key> <value>"
+			var ok: Variant = await Game.call_async("game:debug-set-fact", [args[1], args[2]])
+			Game.send("game:story-status")
+			return "写入 fact %s=%s%s" % [args[1], args[2], "" if bool(ok) else "（被拒绝：受保护前缀）"]
+	return "用法：story [facts|beat <id>|place <anchor>|fact <key> <value>]"
 
 ## --- combat debug -----------------------------------------------------------
 ## Health lives in Scheme's entity registry; these commands only ask for a view

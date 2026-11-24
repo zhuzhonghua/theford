@@ -29,7 +29,10 @@
                       (faceset = "assets/lsw/Faces/Actor/Character/Woman/Faceset.png"))
                     (innkeeper
                       (spritesheet = "assets/na/Actor/Character/Villager2/SpriteSheet.png")
-                      (faceset = "assets/lsw/Faces/Actor/Character/Villager2/Faceset.png"))))
+                      (faceset = "assets/lsw/Faces/Actor/Character/Villager2/Faceset.png"))
+                    (axun
+                      (spritesheet = "assets/na/Actor/Character/Villager3/SpriteSheet.png")
+                      (faceset = "assets/lsw/Faces/Actor/Character/Villager3/Faceset.png"))))
     ;; music: key -> path
     (music = (table
                (village = "assets/na/Audio/Musics/4 - Village.ogg")))

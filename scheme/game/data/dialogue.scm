@@ -8,6 +8,7 @@
 ;; Prompt template placeholders are filled by talk.scm once per turn:
 ;;   {persona} {sys} {quest} {item} {carried} {status} {reason} {hint}
 ;;   {day} {hour} {minute} {weather} {who} {activity}   <- current situation
+;;   {story}      notable story facts, so replies follow the narrative
 ;;   {history} {player}
 ;;
 ;; Weather/activity symbols are turned into player-facing Chinese through the
@@ -52,8 +53,9 @@
     (lunch = "吃饭")
     (drinking = "歇脚")
     (strolling = "闲逛")
+    (loitering = "晃悠")
     (sleep = "睡觉")
     (idle = "发呆")))
 
 (define *prompt-template*
-  "<|im_start|>system\n{persona}{sys}<|im_end|>\n<|im_start|>user\n当前任务状态：{quest}\n玩家背包：{item} x{carried}\n刚刚的判定：Scheme 结果={status}，原因={reason}\n{hint}\n当前情境：第{day}天 {hour}:{minute}，天气：{weather}，{who}正在{activity}。\n\n对话记录：\n{history}\n玩家：{player}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>")
+  "<|im_start|>system\n{persona}{sys}<|im_end|>\n<|im_start|>user\n当前任务状态：{quest}\n玩家背包：{item} x{carried}\n刚刚的判定：Scheme 结果={status}，原因={reason}\n{hint}\n当前情境：第{day}天 {hour}:{minute}，天气：{weather}，{who}正在{activity}。\n{story}\n对话记录：\n{history}\n玩家：{player}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>")

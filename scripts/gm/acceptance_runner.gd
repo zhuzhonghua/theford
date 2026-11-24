@@ -22,6 +22,10 @@ var _steps: Array = []
 var _active := false
 var _run_id := 0
 var _pace := 1.0
+## Headless runs are for CI/terminal verification: skip all presentation tempo
+## (note holds, per-step pauses, typewriters). A GM `load <name>` in a windowed
+## editor keeps the human-paced playback so it stays readable.
+var fast_headless := false
 var _lines: Array[String] = []
 var _audio_backup := {}   # so a volume replay leaves the player's mix alone
 var _last_prompt := ""    # last prompt fetched by an assert-prompt-* step
@@ -35,6 +39,7 @@ var _hint: Label
 func setup(main_node: Node, gm_node: CanvasLayer, font: Font) -> void:
 	main = main_node
 	gm = gm_node
+	fast_headless = DisplayServer.get_name() == "headless"
 	layer = 35
 	_build(font)
 
@@ -106,6 +111,32 @@ func _execute(step: Variant, id: int) -> String:
 	if not (step is Array) or step.is_empty():
 		return "非法步骤（应为非空列表）"
 	var op := str(step[0])
+	# A story cutscene is a real modal panel: it locks walking and swallows
+	# keys by design. Replays that are not asserting the cutscene itself must
+	# dismiss it first (a GM time jump can fire a beat mid-script). Story
+	# assertions and `story-skip` are the only ops allowed while it is up.
+	if not (op in ["note", "wait", "pace", "story-skip", "story-beat",
+			"assert-story-panel", "assert-story-line", "assert-story-fact",
+			"assert-story-fact-absent", "assert-story-beat"]):
+		if main.story_ui != null and main.story_ui.is_open:
+			main.story_ui.close()
+	# Human-paced runs get a `game:people` refresh every real second before a
+	# walk, so NPCs have already reached their schedule anchors. A fast replay
+	# compresses those seconds away; force one refresh + a frame here so the
+	# pathfinder does not route around NPCs still standing at authored spots.
+	if fast_headless and (op in ["walk", "walk-interact", "walk-use",
+			"walk-to-creature", "walk-attack"]):
+		await Game.call_async("game:people", [])
+		# Human-paced runs let villagers walk to their schedule anchors during
+		# the step pauses; a fast replay has no such time, so place them there
+		# directly (the same helper a map switch uses).
+		main._place_npcs_on_entry()
+		# Drain queued beat effects now instead of letting the shell's 1s poll
+		# pop a cutscene in the middle of a scripted walk.
+		await main._poll_effects()
+		if main.story_ui != null and main.story_ui.is_open:
+			main.story_ui.close()
+		await get_tree().process_frame
 	match op:
 		"pace":
 			if step.size() < 2:
@@ -172,7 +203,12 @@ func _execute(step: Variant, id: int) -> String:
 				return "wait 缺少秒数"
 			var seconds := float(step[1])
 			_current.text = "观察画面（%.1f 秒）" % seconds
-			await _pause(seconds)
+			if fast_headless:
+				# Keep a short real interval: story beats and timed effects run
+				# on game ticks, which still advance at normal wall-clock speed.
+				await get_tree().create_timer(minf(seconds, 1.2)).timeout
+			else:
+				await _pause(seconds)
 		"topic":
 			# Choose a dialogue topic the way a player clicks it: dialog.gd's
 			# own _choose() runs the same game:talk call and rebuilds the menu.
@@ -704,6 +740,93 @@ func _execute(step: Variant, id: int) -> String:
 					break
 			if not found:
 				return "消息未出现：" + needle
+		"assert-story-fact":
+			# (assert-story-fact key [value]) — read Scheme's fact bag through
+			# the bridge mirror, not a shell-local copy.
+			if step.size() < 2:
+				return "assert-story-fact 缺少 fact id"
+			var fact_key := str(step[1])
+			var facts_v: Variant = await Game.call_async("game:story-facts", [])
+			var found_v: Variant = null
+			var found_fact := false
+			if facts_v is Array:
+				for row in facts_v:
+					if row is Array and row.size() >= 2 and str(row[0]) == fact_key:
+						found_v = row[1]
+						found_fact = true
+						break
+			_current.text = "断言：剧情 fact " + fact_key
+			if not found_fact:
+				return "fact 不存在：" + fact_key
+			if step.size() >= 3 and str(found_v) != str(step[2]):
+				return "fact 期望 %s，实际 %s" % [str(step[2]), str(found_v)]
+		"assert-story-fact-absent":
+			if step.size() < 2:
+				return "assert-story-fact-absent 缺少 fact id"
+			var absent_key := str(step[1])
+			var facts_absent: Variant = await Game.call_async("game:story-facts", [])
+			var present_absent := false
+			if facts_absent is Array:
+				for row in facts_absent:
+					if row is Array and row.size() >= 1 and str(row[0]) == absent_key:
+						present_absent = true
+						break
+			_current.text = "断言：剧情 fact 不存在 " + absent_key
+			if present_absent:
+				return "fact 仍存在：" + absent_key
+		"assert-story-beat":
+			if step.size() < 2:
+				return "assert-story-beat 缺少 beat id"
+			var beat_v: Variant = await Game.call_async("game:story-status", [])
+			var last_beat := str(beat_v[2]) if beat_v is Array and beat_v.size() >= 3 else ""
+			_current.text = "断言：最近 beat " + str(step[1])
+			if last_beat != str(step[1]):
+				return "最近 beat 期望 %s，实际 %s" % [str(step[1]), last_beat]
+		"assert-story-panel":
+			if step.size() < 2:
+				return "assert-story-panel 需要 open|closed"
+			if main.story_ui == null:
+				return "剧情演出面板不可用"
+			var want_story_open := str(step[1]) == "open"
+			_current.text = "断言：剧情面板%s" % ("打开" if want_story_open else "关闭")
+			if main.story_ui.is_open != want_story_open:
+				return "期望%s，实际%s" % [
+						"打开" if want_story_open else "关闭",
+						"打开" if main.story_ui.is_open else "关闭"]
+		"assert-story-line":
+			if step.size() < 2:
+				return "assert-story-line 缺少文本"
+			if main.story_ui == null or not main.story_ui.is_open:
+				return "剧情面板没有打开"
+			var needle_story := str(step[1])
+			var line_story: String = main.story_ui.current_line()
+			_current.text = "断言：剧情台词包含 " + needle_story
+			if not needle_story in line_story:
+				return "台词不匹配：" + line_story
+		"story-skip":
+			# Dismiss a cutscene through the panel's own close path (the same one
+			# the GM console and a player's Esc use), not a Scheme backdoor.
+			if main.story_ui != null and main.story_ui.is_open:
+				main.story_ui.close()
+			_current.text = "跳过剧情演出"
+			await _pause(0.2)
+		"story-beat":
+			# Manual trigger for a deterministic beat test. The same effect path
+			# plays as a naturally fired beat; only the trigger is scripted.
+			if step.size() < 2:
+				return "story-beat 缺少 beat id"
+			var fired: Variant = await Game.call_async("game:debug-story-beat", [str(step[1])])
+			Game.send("game:story-status")
+			main._poll_effects()
+			_current.text = "触发剧情 beat：" + str(step[1])
+			if not bool(fired):
+				return "beat 未触发：" + str(step[1])
+			await _pause(0.4)
+		"story-place":
+			if step.size() < 2:
+				return "story-place 缺少锚点名"
+			await Game.call_async("game:story-place", [str(step[1])])
+			_current.text = "剧情位置：" + str(step[1])
 		"assert-audio":
 			# Counts cues that actually reached a player. Cue paths resolve on
 			# the logic worker the first time a key is used, so a short pause
@@ -911,6 +1034,11 @@ func _execute(step: Variant, id: int) -> String:
 	return ""
 
 func _pause(seconds: float) -> void:
+	if fast_headless:
+		# One frame is enough for injected input / RPC replies to be processed,
+		# without making a 40-step replay take a minute of wall-clock time.
+		await get_tree().process_frame
+		return
 	var wait := seconds * _pace
 	if wait > 0.0:
 		await get_tree().create_timer(wait).timeout

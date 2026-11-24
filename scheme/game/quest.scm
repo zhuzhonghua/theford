@@ -109,11 +109,17 @@
   (if obj-id
       (hash-table-set! (qget id 'progress (table)) obj-id n)))
 
+;; One NPC may hand out several quests in sequence (老王: 矿石 → 渡船).
+;; Prefer the first live one; if all are done, keep the last completed one so
+;; the post-quest greeting still belongs to that chain.
 (define (quest-for-npc npc)
-  (let loop ((ids (quest-ids)))
-    (cond ((null? ids) #f)
-          ((eq? (qfield (car ids) 'giver 'nobody) npc) (car ids))
-          (else (loop (cdr ids))))))
+  (let loop ((ids (quest-ids)) (done #f))
+    (cond ((null? ids) done)
+          ((eq? (qfield (car ids) 'giver 'nobody) npc)
+           (if (eq? (qstate-sym (car ids)) 'completed)
+               (loop (cdr ids) (car ids))
+               (car ids)))
+          (else (loop (cdr ids) done)))))
 
 ;; ---- quest text -------------------------------------------------------------
 

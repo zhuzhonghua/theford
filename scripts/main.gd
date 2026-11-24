@@ -53,6 +53,7 @@ const GameOver := preload("res://scripts/game_over.gd")
 const QuestPanel := preload("res://scripts/quest_panel.gd")
 const VolumePanel := preload("res://scripts/volume_panel.gd")
 const StartMenu := preload("res://scripts/start_menu.gd")
+const StoryPanel := preload("res://scripts/story_panel.gd")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
@@ -63,6 +64,7 @@ var game_over_ui: GameOver = null
 var quest_ui: QuestPanel = null
 var volume_ui: VolumePanel = null
 var start_menu: StartMenu = null
+var story_ui: StoryPanel = null
 var gm: Node = null
 var _restarting := false
 var _saving := false
@@ -95,6 +97,7 @@ var _last_log := ""
 var _verb_hint := ""
 var _effects_polling := false
 var _reloading := false   # ignore a second reload while one is in flight
+var _last_story_place := ""  # nearest named anchor reported to the story engine
 
 # UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
 @onready var world: Node2D = $World
@@ -129,6 +132,9 @@ func _ready() -> void:
 	start_menu = StartMenu.new()
 	add_child(start_menu)
 	start_menu.setup(font, _continue_game, _restart_game)
+	story_ui = StoryPanel.new()
+	add_child(story_ui)
+	story_ui.setup(font)
 	_register_effect_handlers()
 	_setup_gm(font)
 	hud_label.text = "……（启动中）"
@@ -163,9 +169,11 @@ func _after_bridge_ready() -> void:
 	Game.send("game:bag")
 	Game.send("game:hp")
 	Game.send("game:quests")
+	Game.send("game:story-status")
 	_check_anchors()
 	if OS.get_environment("THEFORD_ACCEPTANCE") != "":
 		# Headless playback needs the world unobstructed; the menu is mouse-only.
+		Game.send("game:story-start")
 		_maybe_autoplay_acceptance()
 	else:
 		start_menu.open(FileAccess.file_exists(SAVE_PATH))
@@ -337,7 +345,11 @@ func _register_scene_entities() -> void:
 		var etype := str(node.get_meta("entity_type", ""))
 		if etype == "":
 			continue
-		var eid := "%s:%s:%d" % [etype.replace("/", "-"), _current_map_id, inter_idx]
+		# Authored clues carry a stable id: quests track them by name, so the
+		# registry must not renumber them when another interactable is added.
+		var eid := str(node.get_meta("entity_id", ""))
+		if eid == "":
+			eid = "%s:%s:%d" % [etype.replace("/", "-"), _current_map_id, inter_idx]
 		inter_idx += 1
 		_entities[eid] = node
 		_entity_types[eid] = etype
@@ -429,7 +441,8 @@ func _nearest_entity(pos: Vector2, max_dist: float) -> Array:
 ## Nearest sign/chest in reach, or "".
 func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
 	var hit: Array = _nearest_of_types(pos, max_dist,
-			["fixture/sign", "fixture/container/chest"])
+			["fixture/sign", "fixture/container/chest",
+			 "fixture/clue/mud", "fixture/clue/rope", "fixture/clue/winch"])
 	return str(hit[0]) if hit[0] != null else ""
 
 ## Nearest live creature within `radius`, or null. Uses the creature group so
@@ -527,6 +540,8 @@ func _register_effect_handlers() -> void:
 	Effects.register("log", _effect_log)
 	Effects.register("container", _effect_container)
 	Effects.register("despawn", _effect_despawn)
+	Effects.register("scene", _effect_scene)
+	Effects.register("say", _effect_say)
 
 ## Execute a list of effect tuples returned by the rule engine. Scheme has
 ## already updated its state; the registered handlers only render.
@@ -590,6 +605,30 @@ func _effect_despawn(args: Array) -> void:
 	_entity_types.erase(eid)
 	if last_used_id == eid:
 		last_used_id = ""
+
+## A story beat hands the shell its lines; the panel owns the pacing. The
+## payload is ("scene" title ((speaker text) ...)), plus a single-line "say"
+## form from beats with only a `say` field.
+func _effect_scene(args: Array) -> void:
+	if story_ui == null:
+		return
+	var title := str(args[0]) if args.size() >= 1 else ""
+	var lines: Array = []
+	if args.size() >= 2 and args[1] is Array:
+		for row in args[1]:
+			if row is Array and row.size() >= 2:
+				lines.append([str(row[0]), str(row[1])])
+	if lines.is_empty():
+		return
+	_log_line(title if not title.is_empty() else str(lines[0][1]))
+	story_ui.open(title, lines)
+
+func _effect_say(args: Array) -> void:
+	if args.is_empty():
+		return
+	var speaker := str(args[0])
+	var text := str(args[1]) if args.size() >= 2 else ""
+	_effect_scene(["", [[speaker, text]]])
 
 ## `open` effect from the rule engine: show or hide the container panel. The
 ## container's `open` prop is already set/cleared in Scheme.
@@ -1197,6 +1236,7 @@ func quick_load() -> bool:
 	return true
 
 func _continue_game() -> void:
+	Game.send("game:story-start")
 	await quick_load()
 
 ## Godot-side view of an entity, for acceptance. Scheme's view is read through
@@ -1319,6 +1359,7 @@ func _restart_game() -> void:
 	if _restarting:
 		return
 	_restarting = true
+	Game.send("game:story-start")
 	Modals.close_all()
 	if gm != null:
 		gm.reset_speed()
@@ -1539,6 +1580,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			var npc := _nearest_npc(player.position, 30.0)
 			if npc != null:
+				# A `target` objective may point at an NPC (阿笋 in the finale).
+				# The dialog opens just as it always does; Scheme decides
+				# whether this interaction advances anything.
+				Game.send("game:quest-target", ["npc:" + str(npc.get("npc_id"))])
 				dialog_ui.open_npc(npc)
 		get_viewport().set_input_as_handled()
 
@@ -1571,6 +1616,22 @@ func _track_footsteps() -> void:
 		_step_distance = 0.0
 		Audio.play("footstep")
 
+## The story engine uses named places, never pixels: report the nearest anchor
+## only when it changes. Same Marker2D names NPC schedules use.
+func _track_story_place() -> void:
+	if player == null or not Game.booted or _anchors.is_empty():
+		return
+	var best := ""
+	var best_d := 28.0
+	for name in _anchors.keys():
+		var d: float = player.position.distance_to(_anchors[name] as Vector2)
+		if d < best_d:
+			best_d = d
+			best = str(name)
+	if best != _last_story_place:
+		_last_story_place = best
+		Game.send("game:story-place", [best])
+
 func _process(delta: float) -> void:
 	_maybe_capture_frame()
 	var rate: float = gm.speed() if gm != null else 1.0
@@ -1597,6 +1658,7 @@ func _process(delta: float) -> void:
 	_apply_people(Game.snapshot.get("people", []))
 	_move_npcs(delta)
 	_track_footsteps()
+	_track_story_place()
 	_update_verb_hint()
 	if player != null and not _portal_traveling and not player.scripted:
 		if _portal_wait_release:

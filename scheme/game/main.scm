@@ -40,6 +40,8 @@
 ;;   game:hp                    (combat.scm) player (hp max-hp down?) for hearts
 ;;   game:creature-bite c t     (combat.scm) a creature bites a target via the rules
 ;;   game:debug-hurt n          (combat.scm) deterministic damage (GM/acceptance)
+;;   game:story-place place     (story.scm) nearest named anchor, gates story beats
+;;   game:story-status          (story.scm) facts + place + last beat for the HUD
 ;;   game:save path host        (save.scm) write a `table`-DSL Scheme source save
 ;;   game:peek-save path        (save.scm) read the host slot without applying state
 ;;   game:load path             (save.scm) load that source, returns (ok status)
@@ -56,6 +58,7 @@
 ;;   data/quests.scm  quest definitions: objectives + stages + rewards (two chains)
 ;;   data/people.scm  roster: names, personas, canned lines, schedules (see npcs.scm)
 ;;   data/rules.scm   rule table: host selector + condition tree + effect list
+;;   data/story.scm   story beats, facts and invariants (three-act narrative)
 ;;   util.scm   data DSL (table/table-ref) + string/list helpers, alists
 ;;   entities.scm runtime registry: id -> (type hp tags props); transforms keep props
 ;;   inventory.scm item stacks: counts, slot capacity, hand equipment slot
@@ -67,6 +70,7 @@
 ;;   quest.scm  multi-quest state machine, objectives, rewards/xp, history
 ;;   time.scm   clock + weather: tick counter, calendar, seeded weather, PRNG
 ;;   talk.scm   topic menu, greetings, prompt building, learned lines
+;;   story.scm  story/fact engine: when -> say/fact/scene, seen.*, invariants
 ;;   save.scm   snapshot / restore of run-time state (host writes it to disk)
 ;;
 ;; The village map/NPC placement is authored in Godot (scenes/world.tscn);
@@ -83,6 +87,7 @@
 (require "game.llm")
 (require "game.npcs")
 (require "game.quest")
+(require "game.story")
 (require "game.talk")
 (require "game.entities")
 (require "game.rules")
@@ -127,7 +132,8 @@
     "game.data.dialogue"
     "game.data.quests"
     "game.data.people"
-    "game.data.rules"))
+    "game.data.rules"
+    "game.data.story"))
 
 (define (reload-modules! mods)
   (when (not (null? mods))
@@ -147,6 +153,9 @@
   (report-schedule-problems)
   (reset-quest!)
   (reset-talk!)
+  ;; Story facts depend on quest state and the clock, so reset after those;
+  ;; a reload is a fresh boot and every beat becomes eligible again.
+  (reset-story!)
   (reset-time!)
   ;; A hot reload is "boot again": the bag is run-time state, so the player
   ;; starts empty instead of keeping items from the previous data set.

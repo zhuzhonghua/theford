@@ -23,7 +23,7 @@
 
 (require "game.util")
 
-(define *npcs* '(smith apothecary innkeeper))
+(define *npcs* '(smith apothecary innkeeper axun))
 
 (define *people*
   (table
@@ -64,4 +64,18 @@
       (lines = (table
                  (greet   = "张掌柜：客官住店？前头还有空房。")
                  (village = "张掌柜：渡口村，面小事多。规矩就一条：别惹老王。")
-                 (work    = "张掌柜：他那把剑还没打完呢。你也去帮帮忙吧。"))))))
+                 (work    = "张掌柜：他那把剑还没打完呢。你也去帮帮忙吧。")))
+
+    (axun
+      (display = "阿笋")
+      (persona = "你正在扮演阿笋，渡口村的少年，十四岁。阿笋话少、眼神躲闪，手上总攥着一截旧绳头。他剪断了渡船缆绳——不是为捣乱，而是怕船匠把父亲留下的渡船拖走。被问到渡船时先含糊其辞，慢慢才肯说实话。")
+      (schedule = (list
+                     (table (from = 6) (to = 11) (at = "village:axun-stand") (activity = 'loitering))
+                     (table (from = 11) (to = 13) (at = "village:inn-yard") (activity = 'lunch))
+                     (table (from = 13) (to = 19) (at = "village:village-square") (activity = 'loitering))
+                     (table (from = 19) (to = 22) (at = "village:axun-stand") (activity = 'loitering))
+                     (table (from = 22) (to = 6) (at = "village:smith-home") (activity = 'sleep))))
+      (lines = (table
+                 (greet   = "阿笋：……我、我得走了。")
+                 (village = "阿笋：渡口村就一条河。别的我也不知道。")
+                 (work    = "阿笋：我没什么活计。别问我河上的事。")))))))

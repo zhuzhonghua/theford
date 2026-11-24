@@ -36,8 +36,6 @@ window/stretch/aspect="expand"
 
 [gui]
 
-; Bundled pixel CJK font (SIL OFL) as the project default, so scene-authored
-; labels (e.g. the NPC name plates) use it without an per-node override.
 theme/custom_font="res://assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2"
 
 [input]
@@ -74,7 +72,6 @@ move_right={
 
 [rendering]
 
-; Required by the universal (arm64) macOS export template.
-textures/vram_compression/import_etc2_astc=true
 textures/canvas_textures/default_texture_filter=0
+textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.086, 0.09, 0.13, 1)

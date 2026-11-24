@@ -85,4 +85,12 @@
                        (vfx (fx "poof"))
                        (log (text "史莱姆化作一滩凝胶"))
                        (despawn))
-                   inherit)))))
+                   inherit)))
+
+    ;; ---- story clues: E on a clue reports its authored text ----------------
+    ;; The quest advance is handled by game:quest-target on the same E press;
+    ;; this rule only supplies the readable line, like the village sign.
+    (fixture/clue-read
+      (on = "impulse/handle")
+      (host = (table (type = 'fixture/clue)))
+      (tree = '(do (log (text (prop host text))))))))

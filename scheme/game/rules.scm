@@ -18,7 +18,9 @@
 ;;
 ;; Conditions: (if c then else), (all c ...), (any c ...), (not c),
 ;; (same role role), (param key value), (prop role key value),
-;; (has role tag), (type role type-id).
+;; (has role tag), (type role type-id), (fact key expected).
+;; A `fact` condition reads the story's fact bag through the same comparator a
+;; beat's `when.facts` uses, so rules and story share one truth source.
 ;;
 ;; Effects (kept to the subset Phase 5 needs):
 ;;   (emit (impulse strike) (to role) (params (power power))) — hurt the target,
@@ -42,6 +44,7 @@
 (require "game.data.types")
 (require "game.time")
 (require "game.data.rules")
+(require "game.story")
 
 ;; ---- registry --------------------------------------------------------------
 
@@ -167,6 +170,8 @@
           ((eq? tag 'type)
            (let ((id (role-value roles (cadr c))))
              (and id (is-a (entity-type id) (caddr c)))))
+          ((eq? tag 'fact)
+           (story:cmp (story:fact-for-compare (cadr c)) (caddr c)))
           (else
            (error (string-append "unknown rule condition: "
                                  (symbol->string tag)))))))))
@@ -374,6 +379,10 @@
 
 (define (queue-effect . parts)
   (set! *pending-effects* (cons (map marshal parts) *pending-effects*)))
+
+;; Story beats queue their scene commands here instead of owning a second queue;
+;; the shell drains them together with timed rule effects.
+(set! *story-effect-sink* queue-effect)
 
 ;; Effects discovered while ticking (a stump growing back) are pulled by the
 ;; shell on its next poll.

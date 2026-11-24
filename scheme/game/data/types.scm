@@ -116,6 +116,20 @@
       (sprite = "fixture:sign")
       (props = (table
                  (handsRange = 2))))
+    ;; Clues are authored interactables for the three-act story. They carry no
+    ;; collision; E on one fires the same handle event as a sign.
+    (fixture/clue
+      (name = "clue")
+      (tags = '("clue" "readable")))
+    (fixture/clue/mud
+      (name = "河滩泥印")
+      (tags = '("clue" "mud")))
+    (fixture/clue/rope
+      (name = "断缆")
+      (tags = '("clue" "rope")))
+    (fixture/clue/winch
+      (name = "绞盘")
+      (tags = '("clue" "rope")))
     (fixture/furniture
       (name = "furniture")
       (tags = '("wooden"))

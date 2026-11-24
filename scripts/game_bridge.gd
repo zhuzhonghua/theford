@@ -64,6 +64,9 @@ var snapshot := {
 	"llm_version": "",
 	"ai_quality": DEFAULT_AI_QUALITY, # off/low/medium/high (scheme/game/llm.scm)
 	"last_turn": {},
+	"story_facts": [],  # [[fact-id, value], ...] from game:story-status
+	"story_place": "",  # nearest named anchor the player is at
+	"story_beat": "",   # last beat that played
 }
 
 var _thread: Thread = null
@@ -368,6 +371,14 @@ func _absorb(fn: String, result: Variant) -> void:
 				snapshot["max_hp"] = int(result[1])
 				snapshot["game_over"] = bool(result[2]) if result.size() >= 3 else false
 				snapshot_changed.emit()
+		"game:story-status":
+			# (facts place last) — the story keeps its own truth in Scheme;
+			# this is a read-only mirror for HUD and acceptance assertions.
+			if result is Array and result.size() >= 3:
+				snapshot["story_facts"] = result[0] if result[0] is Array else []
+				snapshot["story_place"] = str(result[1])
+				snapshot["story_beat"] = str(result[2])
+				snapshot_changed.emit()
 	# Anything that can move an objective refreshes the log on the next batch,
 	# even with the clock paused (GM `speed 0` in acceptance scripts).
 	if fn in ["game:take", "game:talk", "game:greet", "game:quest-target",
@@ -489,6 +500,7 @@ func reload_data() -> Variant:
 	# reply, so ask for both before the shell repaints.
 	send("game:bag")
 	send("game:hp")
+	send("game:story-status")
 	return result
 
 ## Write a `table`-DSL Scheme source save. `host` is the host-owned map and body
@@ -510,6 +522,7 @@ func load_state(path: String) -> Variant:
 	send("game:hp")
 	send("game:people")
 	send("game:quests")
+	send("game:story-status")
 	return result
 
 func _push(msg: Dictionary) -> void:

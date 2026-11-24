@@ -179,6 +179,15 @@ func _strip_name(line: String) -> String:
 	return line
 
 func _run_typewriter(line: String) -> void:
+	# Headless acceptance runs skip presentation time; manual GM playback in a
+	# window keeps the typewriter so the replay still reads like a conversation.
+	if DisplayServer.get_name() == "headless":
+		_text.visible_ratio = 1.0
+		_typing = false
+		# One cue per line keeps the audio acceptance meaningful even though
+		# the visible typewriter is skipped.
+		Audio.play("type")
+		return
 	var t := 0.0
 	while t < 8.0:  # safety cap so a long LLM line still completes
 		var dt := get_process_delta_time()
