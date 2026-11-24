@@ -26,7 +26,7 @@
     (list "press" "F5")
     (list "wait" "1.2")
     (list "assert-save-exists")
-    (list "assert-save-text" "(define *save-data*")
+    (list "assert-save-text" "((version 1)")
     (list "assert-save-text" "item/material/ore")
     (list "assert-log" "已存档：")
 
