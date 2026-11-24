@@ -53,7 +53,7 @@ func load_script(script_name: String) -> String:
 	var path := "res://scheme/acceptance/%s.scm" % script_name
 	if not FileAccess.file_exists(path):
 		return "找不到验收脚本：%s" % path
-	var err: Variant = await Game.load_async(ProjectSettings.globalize_path(path))
+	var err: Variant = await Game.load_async(Game.scheme_path(path))
 	if not (err is String) or not err.is_empty():
 		return "脚本加载失败：%s" % str(err)
 	var steps: Variant = await Game.call_async("acceptance:steps", [])

@@ -37,7 +37,20 @@ cmake --build build --target scmllama_gdextension -j
 
 Platforms: verified only on macOS arm64 (`.gdextension` currently registers a macOS entry only). Linux/Windows require building the extension on that platform and adding the matching entry.
 
-Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tracked by git; for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF)). Set `THEFORD_AI_QUALITY=0` (or `off`) to run with **no model at all** — NPCs use canned lines and the game is still completable. The four levels are `off` / `low` (64 tokens) / `medium` (default, 120) / `high` (200); higher learned lines replay at lower levels, never the other way around.
+### Export (macOS)
+
+`export_presets.cfg` ships a macOS preset. After installing the matching export templates in Godot:
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . \
+  --export-release "macOS" "$PWD/export/The Ford.app"
+```
+
+The native Scheme VM reads with `fopen`, so the .scm files cannot stay inside the PCK. On first launch the bridge unpacks them from `res://scheme/` into `user://scheme_pck/` and points the VM there; the project tree is used directly in the editor, so hot reload still picks up live edits. `.scm` files are included via the preset's `include_filter` (Godot treats them as plain text and would otherwise skip them).
+
+The 378 MB GGUF is **not** packed into the app. Copy it next to the binary (or into the app bundle's `Contents/Resources/`), or set `$THEFORD_MODEL` to its absolute path. Without a model the game still runs on canned dialogue.
+
+Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (editor) or beside the exported binary → `user://`. The model is not tracked by git; see for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF). Set `THEFORD_AI_QUALITY=0` (or `off`) to run with **no model at all** — NPCs use canned lines and the game is still completable. The four levels are `off` / `low` (64 tokens) / `medium` (default, 120) / `high` (200); higher learned lines replay at lower levels, never the other way around.
 
 ## Gameplay
 
@@ -60,5 +73,5 @@ Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (not tr
 
 ## Known limitations
 
-- Chinese text uses the bundled Fusion Pixel font (`assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2`, SIL OFL, see `assets/fonts/OFL.txt`) and does not rely on system fonts.
-- `res://` scheme paths only resolve to the project directory in editor/debug builds. Exporting requires packing the scheme files into the PCK and changing the read path.
+- Chinese text uses the bundled Fusion Pixel font (`assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2`, SIL OFL, see `assets/fonts/OFL.txt`), set as the project-wide default; no system CJK font is required.
+- The exported macOS app is self-contained except for the optional GGUF model (see Export above). Save data and volume settings live in `user://` and are not affected by the scheme unpack directory.

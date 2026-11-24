@@ -12,10 +12,15 @@ extends Node
 ##
 ## Model discovery order:
 ##   1. $THEFORD_MODEL
-##   2. <project>/models/Qwen3-0.6B-Q4_K_M.gguf
+##   2. <project>/models/Qwen3-0.6B-Q4_K_M.gguf (editor) or beside the binary
 ## If neither exists the game still runs: NPCs fall back to canned lines.
 ## $THEFORD_AI_QUALITY (off|low|medium|high or 0..3) sets how much the model
 ## does; off never loads it. It is the player's preference, not save state.
+##
+## File paths: the native VM opens .scm files with fopen(), which cannot see
+## inside a PCK. In the editor res:// is a real directory; in an export the
+## whole scheme tree is unpacked once into user:// and the VM is pointed there.
+## scheme_path() is the single resolver shared with the acceptance runner.
 
 signal bridge_ready(llm_available: bool)
 signal rpc_replied(ticket: int, result: Variant)
@@ -25,6 +30,8 @@ signal stream_pieces(pieces: PackedStringArray)
 
 const DEFAULT_GGUF := "models/Qwen3-0.6B-Q4_K_M.gguf"
 const DEFAULT_AI_QUALITY := "medium"
+const SCHEME_ROOT := "res://scheme"
+const PCK_SCHEME_DIR := "user://scheme_pck"
 
 var use_llm := false
 ## Effective AI level: off/low/medium/high (see scheme/game/llm.scm).
@@ -71,17 +78,14 @@ var _running := false
 var _scheme_path := ""
 var _main_scm := ""
 var _model_path := ""
+var _scheme_dir := ""   # real OS path to the scheme tree (project or unpacked PCK)
 
 func _ready() -> void:
 	# Resolve paths here: ProjectSettings is a main-thread singleton.
-	var scheme_dir: String = ProjectSettings.globalize_path("res://scheme")
-	_scheme_path = scheme_dir + "/?.scm;" + scheme_dir + "/?/init.scm"
-	_main_scm = ProjectSettings.globalize_path("res://scheme/game/main.scm")
-	_model_path = OS.get_environment("THEFORD_MODEL")
-	if _model_path == "":
-		var guess: String = ProjectSettings.globalize_path("res://").path_join(DEFAULT_GGUF)
-		if FileAccess.file_exists(guess):
-			_model_path = guess
+	_scheme_dir = _prepare_scheme_dir()
+	_scheme_path = _scheme_dir + "/?.scm;" + _scheme_dir + "/?/init.scm"
+	_main_scm = _scheme_dir + "/game/main.scm"
+	_model_path = _find_model_path()
 	ai_quality = _read_ai_quality()
 	_running = true
 	_thread = Thread.new()
@@ -92,6 +96,74 @@ func _ready() -> void:
 		vm_error = "无法启动逻辑线程（错误码 %d）" % err
 		push_error("[scmllama] " + vm_error)
 		emit_signal("bridge_ready", false)
+
+## ---- resource path resolution ------------------------------------------------
+
+## The VM calls fopen() directly, so it needs real directories. Editor builds
+## use the project tree (hot reload must see live edits); exports unpack the
+## .scm files from the PCK once into user:// at startup.
+func _prepare_scheme_dir() -> String:
+	var project_path: String = ProjectSettings.globalize_path(SCHEME_ROOT)
+	# The env override exercises the exported-build path from the editor, for
+	# testing the PCK unpack without producing a build.
+	var force_pck := OS.get_environment("THEFORD_FORCE_PCK_SCHEME") == "1"
+	if OS.has_feature("editor") and not force_pck and DirAccess.dir_exists_absolute(project_path):
+		return project_path
+	var dest: String = ProjectSettings.globalize_path(PCK_SCHEME_DIR)
+	_unpack_scheme_dir(SCHEME_ROOT, dest)
+	return dest
+
+func _unpack_scheme_dir(from: String, to: String) -> void:
+	var dir := DirAccess.open(from)
+	if dir == null:
+		push_error("[TheFord] 无法读取 scheme 目录：%s" % from)
+		return
+	DirAccess.make_dir_recursive_absolute(to)
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while entry != "":
+		if not entry.begins_with("."):
+			var child_from := from.path_join(entry)
+			var child_to := to.path_join(entry)
+			if dir.current_is_dir():
+				_unpack_scheme_dir(child_from, child_to)
+			elif entry.ends_with(".scm"):
+				var body := FileAccess.get_file_as_bytes(child_from)
+				if not body.is_empty():
+					var out := FileAccess.open(child_to, FileAccess.WRITE)
+					if out == null:
+						push_error("[TheFord] 无法写出 scheme 文件：%s" % child_to)
+					else:
+						out.store_buffer(body)
+						out.close()
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+## Resolve a res:// scheme resource to a real path the VM can open. Shared with
+## the acceptance runner so both boot and script loading follow one policy.
+func scheme_path(res_path: String) -> String:
+	if res_path.begins_with(SCHEME_ROOT + "/"):
+		return _scheme_dir + res_path.substr(SCHEME_ROOT.length())
+	return ProjectSettings.globalize_path(res_path)
+
+## The GGUF is intentionally not packed into the PCK (378 MB); an exported build
+## looks beside the binary / in its Resources folder, or under user://, or uses
+## $THEFORD_MODEL. Without it the game is still playable on canned lines.
+func _find_model_path() -> String:
+	var explicit: String = OS.get_environment("THEFORD_MODEL").strip_edges()
+	if explicit != "":
+		return explicit
+	var exe_dir: String = OS.get_executable_path().get_base_dir()
+	var candidates := [
+		ProjectSettings.globalize_path("res://").path_join(DEFAULT_GGUF),
+		exe_dir.path_join(DEFAULT_GGUF),
+		exe_dir.path_join("../Resources").path_join(DEFAULT_GGUF),
+		ProjectSettings.globalize_path("user://").path_join(DEFAULT_GGUF),
+	]
+	for candidate in candidates:
+		if FileAccess.file_exists(candidate):
+			return candidate
+	return ""
 
 ## $THEFORD_AI_QUALITY accepts a name or 0..3; unknown values keep the default.
 func _read_ai_quality() -> String:

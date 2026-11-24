@@ -31,7 +31,7 @@ func _ready() -> void:
 	visible = false
 	Game.stream_pieces.connect(_on_stream_pieces)
 
-## Called by main.gd once it has picked the system CJK font.
+## Called by main.gd with the project's bundled CJK font (see _load_cjk_font).
 func apply_font(f: Font) -> void:
 	cjk_font = f
 	_name_label.add_theme_font_override("font", f)

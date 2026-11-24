@@ -37,8 +37,26 @@ cmake --build build --target scmllama_gdextension -j
 平台：目前仅在 macOS arm64 上验证（`.gdextension` 只注册了 macos 条目）；
 Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目。
 
-模型查找顺序：`$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf`（项目自带，不入 git）。
-设 `THEFORD_AI_QUALITY=0`（或 `off`）可**完全不加载模型**：NPC 用预置台词，游戏照样能通关。
+### 导出（macOS）
+
+`export_presets.cfg` 里带了一个 macOS 预设。在 Godot 装好对应导出模板后：
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . \
+  --export-release "macOS" "$PWD/export/The Ford.app"
+```
+
+原生 Scheme VM 用 `fopen` 读文件，看不到 PCK 内部。首次启动时 bridge 会把
+`res://scheme/` 里的 .scm 解包到 `user://scheme_pck/`，再让 VM 读这个真实目录；
+编辑器里仍直接用项目目录，所以热重载依然能读到刚改的内容。预设的
+`include_filter` 显式包含 `*.scm`（Godot 把它们当纯文本，默认不会导出）。
+
+378 MB 的 GGUF **不**打进 app：把它拷到可执行文件旁（或 app 包的
+`Contents/Resources/`），或用 `$THEFORD_MODEL` 指向绝对路径。没有模型也能玩，只是用预置台词。
+
+模型查找顺序：`$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf`（编辑器）或导出程序旁的
+同名文件 → `user://`。模型文件不入 git。设 `THEFORD_AI_QUALITY=0`（或 `off`）可
+**完全不加载模型**：NPC 用预置台词，游戏照样能通关。
 四档为 `off` / `low`（64 tok）/ `medium`（默认 120 tok）/ `high`（200 tok）；高档生成的台词可供低档回放，反之不行。
 
 
@@ -83,6 +101,6 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 ## 已知边界
 
 - 中文用项目自带字体渲染：`assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2`
-  （Fusion Pixel，SIL OFL 许可，见 `assets/fonts/OFL.txt`），不依赖系统字体
-- `res://` scheme 路径只在编辑器/调试模式下指向项目目录；
-  导出可执行文件需把 scheme 文件打进 PCK 并改造读取路径
+  （Fusion Pixel，SIL OFL 许可，见 `assets/fonts/OFL.txt`），已设为项目全局默认字体，不依赖系统字体
+- 导出的 macOS app 除可选的 GGUF 模型外自包含（见「导出」一节）；存档与音量设置放在
+  `user://`，不受 scheme 解包目录影响
