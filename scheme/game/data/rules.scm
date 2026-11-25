@@ -93,4 +93,14 @@
     (fixture/clue-read
       (on = "impulse/handle")
       (host = (table (type = 'fixture/clue)))
-      (tree = '(do (log (text (prop host text))))))))
+      (tree = '(do (log (text (prop host text))))))
+
+    ;; One rule per state, not one static prop: after the ferry reopens the
+    ;; winch reads differently. Falls through to the generic clue text before
+    ;; that, so this is the same rules/facts channel the story uses.
+    (fixture/clue/winch-done
+      (on = "impulse/handle")
+      (host = (table (type = 'fixture/clue/winch)))
+      (tree = '(if (fact ford.ferry-open 1)
+                   (do (log (text "渡船已经重开，缆绳接得牢牢的。")))
+                   inherit)))))

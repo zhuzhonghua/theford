@@ -45,6 +45,18 @@
     (storm = "暴雨")
     (fog = "起雾")))
 
+;; State-aware canned greetings: key = npc id, value = table of fact-id -> line.
+;; The LLM prompt already carries {story}; this keeps the no-model / canned
+;; path just as context-aware instead of repeating the opening line forever.
+(define *fact-greetings*
+  (table
+    (axun/ford.ferry-open
+      = "阿笋：船修好了……你没把它拖走。谢谢你。")
+    (smith/ford.ferry-open
+      = "老王：第一班渡船开出去了，信也送到了。嘿，你我还真把这事办成了。")
+    (innkeeper/ford.ferry-open
+      = "张掌柜：对岸的客人能过来了，今晚屋里该热闹了。")))
+
 (define *activity-labels*
   (table
     (smithing = "打铁")

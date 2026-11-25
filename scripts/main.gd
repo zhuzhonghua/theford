@@ -522,6 +522,63 @@ func _nearest_entity(pos: Vector2, max_dist: float) -> Array:
 	return [null, null]
 
 ## Nearest sign/chest in reach, or "".
+func _fact_true(key: String) -> bool:
+	for row in Game.snapshot.get("story_facts", []):
+		if row is Array and row.size() >= 2 and str(row[0]) == key:
+			return bool(row[1]) or str(row[1]) == "1"
+	return false
+
+func _facing_vector() -> Vector2:
+	if player == null:
+		return Vector2.DOWN
+	match player.facing:
+		"left": return Vector2.LEFT
+		"right": return Vector2.RIGHT
+		"up": return Vector2.UP
+		_: return Vector2.DOWN
+
+## One E target for everything nearby. NPCs and authored interactables compete
+## on distance, with a small bonus for whatever the player is facing — so a
+## villager standing beside a sign no longer steals (or loses) the E press.
+func _e_target() -> Dictionary:
+	var best := {}
+	var best_score := INF
+	if player == null:
+		return best
+	var front := _facing_vector()
+	for eid in _entities.keys():
+		var etype := str(_entity_types.get(eid, ""))
+		if not (etype == "fixture/sign" or etype == "fixture/container/chest" \
+				or etype.begins_with("fixture/clue")):
+			continue
+		var node: Variant = _entities[eid]
+		if not is_instance_valid(node) or not (node is Node2D):
+			continue
+		var delta: Vector2 = (node as Node2D).position - player.position
+		var d := delta.length()
+		if d > 48.0:
+			continue
+		var score := d
+		if d > 0.1 and front.dot(delta.normalized()) > 0.3:
+			score -= 6.0
+		if score < best_score:
+			best_score = score
+			best = {"kind": "entity", "id": str(eid)}
+	for npc in get_tree().get_nodes_in_group("npc"):
+		if not (npc is Node2D) or not npc.visible:
+			continue
+		var delta: Vector2 = npc.position - player.position
+		var d := delta.length()
+		if d > 36.0:
+			continue
+		var score := d - 3.0  # talking beats a clue at the same distance
+		if d > 0.1 and front.dot(delta.normalized()) > 0.3:
+			score -= 8.0
+		if score < best_score:
+			best_score = score
+			best = {"kind": "npc", "id": str(npc.get("npc_id")), "node": npc}
+	return best
+
 func _nearest_interactable(pos: Vector2, max_dist: float) -> String:
 	var hit: Array = _nearest_of_types(pos, max_dist,
 			["fixture/sign", "fixture/container/chest",
@@ -567,22 +624,27 @@ func _update_verb_hint() -> void:
 				if tree[0] != null:
 					hint = "F 砍树" if tool_in_hand else "F 需要装备斧头（I 装备）"
 				else:
-					var inter := _nearest_interactable(player.position, 48.0)
-					if inter != "":
-						var itype := str(_entity_types.get(inter, ""))
-						if itype == "fixture/sign":
-							hint = "E 阅读木牌"
-						elif itype == "fixture/container/chest":
-							hint = "E 打开箱子"
-						elif itype.begins_with("fixture/clue"):
-							match inter:
-								"winch": hint = "E 接缆绳"
-								"axun": hint = "E 问阿笋"
-								_: hint = "E 查看线索"
-					else:
-						var npc := _nearest_npc(player.position, 30.0)
-						if npc != null:
-							hint = "E 交谈"
+					# Same target as the real E press, so the hint never lies.
+					var pick := _e_target()
+					match pick.get("kind", ""):
+						"entity":
+							var inter := str(pick.get("id", ""))
+							var itype := str(_entity_types.get(inter, ""))
+							if itype == "fixture/sign":
+								hint = "E 阅读木牌"
+							elif itype == "fixture/container/chest":
+								hint = "E 打开箱子"
+							elif inter == "winch":
+								hint = "E 查看渡船" if _fact_true("ford.ferry-open") else "E 接缆绳"
+							elif inter == "axun":
+								hint = "E 问阿笋"
+							else:
+								hint = "E 查看线索"
+						"npc":
+							var npc: Node2D = pick.get("node") as Node2D
+							if npc != null:
+								var display := str(npc.get("display_name"))
+								hint = "E 与%s交谈" % display if display != "" else "E 交谈"
 	if hint != _verb_hint:
 		_verb_hint = hint
 		_refresh_hud()
@@ -1745,9 +1807,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if event.is_action_pressed("interact") and not Modals.is_modal_open():
-		# Signs and chests take the active verb; villagers take dialogue.
-		var target_id := _nearest_interactable(player.position, 48.0)
-		if target_id != "":
+		# One target wins: the closest villager / sign / clue in front of the
+		# player. No more "I meant to talk to Lao Wang but got the sign".
+		var pick := _e_target()
+		var target_id := str(pick.get("id", "")) if pick.has("id") else ""
+		if pick.get("kind", "") == "entity" and target_id != "":
 			_interact_entity(target_id)
 			# Quests may track a world target by its entity id. Wait for the
 			# verdict and say so out loud — otherwise "按了 E 只出个提示"
@@ -1756,8 +1820,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			var feedback := _target_feedback(target_id, bool(moved))
 			if feedback != "":
 				_log_line(feedback)
-		else:
-			var npc := _nearest_npc(player.position, 30.0)
+		elif pick.get("kind", "") == "npc":
+			var npc: Node2D = pick.get("node") as Node2D
 			if npc != null:
 				# A `target` objective may point at an NPC (阿笋 in the finale).
 				# The dialog opens just as it always does; Scheme decides
@@ -1766,7 +1830,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				# Fire-and-forget: awaiting this RPC would delay the dialog
 				# opening by a worker round-trip and scripts pressing E then a
 				# topic would race it. Feedback still arrives via the reply.
-				Game.send("game:quest-target", ["npc:" + str(npc.get("npc_id"))])
+				var npc_id := str(npc.get("npc_id"))
+				# Quest data may name either the dialogue actor (npc:axun) or
+				# the authored clue with the bare id (axun); both are cheap no-ops
+				# when they do not match the current objective.
+				Game.send("game:quest-target", [npc_id])
+				Game.send("game:quest-target", ["npc:" + npc_id])
 		get_viewport().set_input_as_handled()
 
 func _exit_tree() -> void:

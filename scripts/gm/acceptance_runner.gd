@@ -878,6 +878,14 @@ func _execute(step: Variant, id: int) -> String:
 			_current.text = "断言：剧情台词包含 " + needle_story
 			if not needle_story in line_story:
 				return "台词不匹配：" + line_story
+		"close-dialog":
+			# Pressing E near an NPC again reopens the dialog (correct gameplay).
+			# Replays use this to close deliberately instead of guessing how many
+			# E presses are needed with a typewriter in flight.
+			if main.dialog_ui != null and main.dialog_ui.is_open:
+				main.dialog_ui.close()
+			_current.text = "关闭对话面板"
+			await _pause(0.1)
 		"story-skip":
 			# Dismiss a cutscene through the panel's own close path (the same one
 			# the GM console and a player's Esc use), not a Scheme backdoor.
