@@ -10,6 +10,8 @@ extends CanvasLayer
 ## close, and consumes only J / Esc while it is on top. main.gd needs one hotkey
 ## branch, and travel / reload / F8 close it through Modals.close_all().
 
+const PanelUtil := preload("res://scripts/panel_util.gd")
+
 const STATE_NAMES := {
 	"not-offered": "未接",
 	"accepted": "进行中",
@@ -30,6 +32,7 @@ func setup(font: Font) -> void:
 	layer = 25  # same plane as the bag panel; only one is open at a time
 	name = "QuestPanelLayer"
 	_build()
+	PanelUtil.add_close_button(self, font)
 	Game.snapshot_changed.connect(_on_snapshot_changed)
 	Game.bridge_ready.connect(_on_bridge_ready)
 	visible = false

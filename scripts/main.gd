@@ -54,6 +54,13 @@ const QuestPanel := preload("res://scripts/quest_panel.gd")
 const VolumePanel := preload("res://scripts/volume_panel.gd")
 const StartMenu := preload("res://scripts/start_menu.gd")
 const StoryPanel := preload("res://scripts/story_panel.gd")
+const StatusPanel := preload("res://scripts/status_panel.gd")
+const LogPanel := preload("res://scripts/log_panel.gd")
+const HelpPanel := preload("res://scripts/help_panel.gd")
+const MapPanel := preload("res://scripts/map_panel.gd")
+const HudBar := preload("res://scripts/hud_bar.gd")
+const OreScene := preload("res://scenes/ore.tscn")
+const HerbScene := preload("res://scenes/herb.tscn")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
 ## release build without changing this shell.
 const GM_SCRIPT_PATH := "res://scripts/gm/gm_console.gd"
@@ -65,6 +72,11 @@ var quest_ui: QuestPanel = null
 var volume_ui: VolumePanel = null
 var start_menu: StartMenu = null
 var story_ui: StoryPanel = null
+var status_panel: StatusPanel = null
+var log_panel: LogPanel = null
+var help_panel: HelpPanel = null
+var map_panel: MapPanel = null
+var hud_bar: HudBar = null
 var gm: Node = null
 var _restarting := false
 var _saving := false
@@ -93,22 +105,20 @@ var _entities := {}         # entity-id string -> Node2D node reference
 var _entity_types := {}     # entity-id string -> type id ("fixture/tree", ...)
 var last_used_id := ""      # entity targeted by the most recent F, for tests
 var _log_history: Array[String] = []
-var _last_log := ""
 var _verb_hint := ""
 var _effects_polling := false
+var _picked_scene_items := {}  # static pickups already taken, kept across map travel
 var _reloading := false   # ignore a second reload while one is in flight
 var _last_story_place := ""  # nearest named anchor reported to the story engine
 
-# UI lives in main.tscn (HUD + talk panel); the shell only fills text in.
+# World and talk panel live in main.tscn; the HUD is built by hud_bar.gd.
 @onready var world: Node2D = $World
 @onready var ground: TileMapLayer = $World/Ground
 @onready var player: Node2D = $World/Player
-@onready var hud_label: Label = $UI/HUD/HUDLabel
 @onready var dialog_ui: CanvasLayer = $Dialog
 
 func _ready() -> void:
 	var font := _load_cjk_font()
-	hud_label.add_theme_font_override("font", font)
 	dialog_ui.apply_font(font)
 	mech = MechHud.new()
 	add_child(mech)
@@ -135,9 +145,27 @@ func _ready() -> void:
 	story_ui = StoryPanel.new()
 	add_child(story_ui)
 	story_ui.setup(font)
+	status_panel = StatusPanel.new()
+	add_child(status_panel)
+	status_panel.setup_with_main(font, self)
+	log_panel = LogPanel.new()
+	add_child(log_panel)
+	log_panel.setup_with_main(font, self)
+	help_panel = HelpPanel.new()
+	add_child(help_panel)
+	help_panel.setup_ui(font)
+	map_panel = MapPanel.new()
+	add_child(map_panel)
+	map_panel.setup_with_main(font, self)
+	status_panel.set_toggle_key(KEY_C)
+	log_panel.set_toggle_key(KEY_L)
+	map_panel.set_toggle_key(KEY_M)
+	help_panel.set_toggle_key(KEY_H)
+	hud_bar = HudBar.new()
+	add_child(hud_bar)
+	hud_bar.setup(font, self)
 	_register_effect_handlers()
 	_setup_gm(font)
-	hud_label.text = "……（启动中）"
 	_setup_audio()
 	_setup_world()
 	_setup_weather()
@@ -236,12 +264,67 @@ func _play_music_for_map(map_id: String) -> void:
 
 ## ------------------------------------------------------------------ world --
 
+## Player-facing words for quest targets; the raw entity id is not useful
+## feedback, and "只有一行提示" was exactly the complaint about the winch.
+func _target_feedback(target_id: String, moved: bool) -> String:
+	if moved:
+		match target_id:
+			"winch": return "缆绳接好了！去告诉老王，渡船可以下了。"
+			"axun": return "阿笋终于说出实情。"
+			"river-mud": return "泥印记下了，再去看看断缆。"
+			"rope-end": return "断口是刀割的，线索齐了。"
+			_: return "任务进展：" + target_id
+	match target_id:
+		"winch": return "绞盘还缺一截缆绳。先找阿笋问清旧缆绳的事（按 J 看任务）。"
+		"axun": return "阿笋把绳头往怀里藏，再跟他搭句话试试。"
+		_: return ""
+
+func _pick_key(node: Node2D) -> String:
+	return "%s/%s" % [_current_map_id, node.name]
+
+## Pickups are generated, not authored as sprites in the .tscn: the scene
+## holds only named Marker2D positions. Godot owns the geometry, Scheme still
+## owns the bag; names double as the cross-map "already taken" keys.
+func _spawn_pickups() -> void:
+	var marks: Array[Node] = []
+	var spawns := world.get_node_or_null("SpawnPoints")
+	if spawns != null:
+		for child in spawns.get_children():
+			marks.append(child)
+	for name in _anchors.keys():
+		# herb-garden is a region name, not a spawn point: herb-1..6 are six chars.
+		if str(name).begins_with("herb-") and str(name).length() == 6 \
+				and world.has_node("Anchors/" + str(name)):
+			marks.append(world.get_node("Anchors/" + str(name)))
+	for mark in marks:
+		var key := _pick_key(mark as Node2D)
+		if _picked_scene_items.has(key):
+			continue
+		var scene: PackedScene = null
+		if str(mark.name).begins_with("ore-"):
+			scene = OreScene
+		elif str(mark.name).begins_with("herb-"):
+			scene = HerbScene
+		if scene == null:
+			continue
+		var item := scene.instantiate() as Node2D
+		item.name = mark.name
+		item.position = (mark as Node2D).position
+		world.add_child(item)
+
 func _setup_world() -> void:
+	# A static pickup taken earlier must not respawn when Godot rebuilds the
+	# map on a portal trip — the scene is re-instantiated from the .tscn.
+	for group in PICKUP_TYPES.keys():
+		for node in get_tree().get_nodes_in_group(group):
+			if is_instance_valid(node) and _picked_scene_items.has(_pick_key(node as Node2D)):
+				node.queue_free()
 	var used := ground.get_used_rect()
 	map_w = maxi(used.end.x, 1)
 	map_h = maxi(used.end.y, 1)
 	_build_blocked()
 	_setup_anchors()
+	_spawn_pickups()
 	_setup_portals()
 	_setup_astar()
 	player.main = self
@@ -491,6 +574,11 @@ func _update_verb_hint() -> void:
 							hint = "E 阅读木牌"
 						elif itype == "fixture/container/chest":
 							hint = "E 打开箱子"
+						elif itype.begins_with("fixture/clue"):
+							match inter:
+								"winch": hint = "E 接缆绳"
+								"axun": hint = "E 问阿笋"
+								_: hint = "E 查看线索"
 					else:
 						var npc := _nearest_npc(player.position, 30.0)
 						if npc != null:
@@ -498,6 +586,8 @@ func _update_verb_hint() -> void:
 	if hint != _verb_hint:
 		_verb_hint = hint
 		_refresh_hud()
+		if hud_bar != null:
+			hud_bar.set_hint(hint)
 
 ## F key — use whatever tool the player carries on the nearest tree. Scheme
 ## decides whether the bag holds an axe; without one no rule matches and the
@@ -554,11 +644,42 @@ func _after_effects() -> void:
 
 ## --- effect adapters: (payload args) -> the existing render helpers -----------
 
+## Hits need to be felt, not just read: flash the target and nudge the camera
+## when the player is hit. Tweens touch only visual properties (modulate /
+## camera offset), never gameplay positions owned by player/creature scripts.
+func _impact_flash(id: String) -> void:
+	var ref: Variant = _entities.get(id, null)
+	if ref == null or not is_instance_valid(ref) or not (ref is CanvasItem):
+		return
+	var node := ref as CanvasItem
+	var base := node.modulate
+	var tween := create_tween()
+	tween.set_parallel(false)
+	tween.tween_property(node, "modulate", Color(1.0, 0.28, 0.24, 1.0), 0.04)
+	tween.tween_property(node, "modulate", base, 0.18)
+
+func _camera_shake() -> void:
+	if player == null:
+		return
+	var camera: Variant = player.get_node_or_null("Camera2D")
+	if camera == null or not (camera is Camera2D):
+		return
+	var cam := camera as Camera2D
+	var base := cam.offset
+	var tween := create_tween()
+	for i in range(3):
+		tween.tween_property(cam, "offset", base + Vector2(randf_range(-4, 4), randf_range(-3, 3)), 0.03)
+		tween.tween_property(cam, "offset", base, 0.03)
+	tween.tween_property(cam, "offset", base, 0.01)
+
 func _effect_hit(args: Array) -> void:
 	if args.is_empty():
 		return
 	var id := str(args[0])
 	_vfx_hit(id)
+	_impact_flash(id)
+	if id == "player":
+		_camera_shake()
 	# A swing at a tree has its own whoosh; every other blow gets the impact
 	# cue. The target's type is still the tree here (transform runs later).
 	Audio.play("chop" if _entity_types.get(id, "") == "fixture/tree" else "hit")
@@ -800,16 +921,14 @@ func _vfx_play(eid: String, fx_name: String) -> void:
 func _log_line(text: String) -> void:
 	if text == "":
 		return
-	_last_log = text
+	# Messages live in the log panel now; the HUD no longer flashes them for
+	# five seconds and discards them.
 	_log_history.append(text)
 	while _log_history.size() > 20:
 		_log_history.pop_front()
+	if hud_bar != null:
+		hud_bar.push_message(text)
 	Game.snapshot_changed.emit()
-	# Clear after a few seconds so the hint line returns.
-	get_tree().create_timer(5.0).timeout.connect(func():
-			if _last_log == text:
-				_last_log = ""
-				Game.snapshot_changed.emit())
 
 ## Current "map:anchor" for an NPC straight from the people snapshot, or "".
 func _sched_at(id: String) -> String:
@@ -844,6 +963,32 @@ func entity_node(id: String) -> Node2D:
 
 func portal_position(id: String) -> Variant:
 	return _portals.get(id, null)
+
+## Read-only views for the product UI panels (no state is duplicated there).
+func log_history() -> Array:
+	return _log_history.duplicate()
+
+func portal_positions() -> Dictionary:
+	return _portals.duplicate()
+
+func minimap_data() -> Dictionary:
+	var anchors: Array = []
+	for name in _anchors.keys():
+		anchors.append({"name": str(name), "pos": _anchors[name]})
+	return {
+		"blocked": blocked.keys(),
+		"anchors": anchors,
+		"npcs": npc_visual_rows(),
+		"portals": _portals.values(),
+		"player": player.position if is_instance_valid(player) else Vector2.ZERO,
+	}
+
+func npc_visual_rows() -> Array:
+	var rows: Array = []
+	for npc in get_tree().get_nodes_in_group("npc"):
+		if npc is Node2D and npc.visible:
+			rows.append({"id": str(npc.get("npc_id")), "pos": npc.position})
+	return rows
 
 ## A cell centre from which the player can reach `target` (an entity's origin):
 ## the target cell when walkable, otherwise the nearest walkable cell within
@@ -1303,32 +1448,8 @@ func _fit_zoom() -> float:
 ## Reads the bridge's cached snapshot only — the main thread never touches
 ## the Scheme VM.
 func _refresh_hud() -> void:
-	if hud_label == null:
-		return
-	var weather := str(Game.snapshot.get("weather", "sun"))
-	var hint := ""
-	if _last_log != "":
-		hint = _last_log
-	elif _verb_hint != "":
-		hint = _verb_hint
-	elif not (mech != null and mech.is_showing()):
-		hint = "E 互动 / 开箱 / 读牌   F 砍树   I 背包   J 任务   O 音量   F1 机制   F5 存档   F9 读档" + ("   F8 GM" if gm != null else "")
-	var quality := str(Game.snapshot.get("ai_quality", "medium"))
-	var llm_state := "LLM：本地推理" if Game.use_llm else "LLM：预置台词"
-	if quality != "":
-		llm_state += "（AI " + str(AI_QUALITY_NAMES.get(quality, quality)) + "）"
-	hud_label.text = "第 %d 天  %02d:%02d   天气：%s   ♥ %d/%d\n%s\n%s\n%s   %s\n%s" % [
-			int(Game.snapshot.get("day", 1)),
-			int(Game.snapshot.get("hour", 8)),
-			int(Game.snapshot.get("minute", 0)),
-			str(WEATHER_NAMES.get(weather, weather)),
-			int(Game.snapshot.get("hp", 10)),
-			int(Game.snapshot.get("max_hp", 10)),
-			str(Game.snapshot.get("quest_text", "")) + "   经验 " + str(int(Game.snapshot.get("xp", 0))),
-			_activity_line(),
-			_bag_line(),
-			llm_state,
-			hint]
+	# The old UI/HUD/HUDLabel scene node was removed: status now lives in
+	# scripts/hud_bar.gd, which listens to Game.snapshot_changed directly.
 	_refresh_weather()
 	_check_game_over()
 	_check_quest_jingle()
@@ -1359,6 +1480,7 @@ func _restart_game() -> void:
 	if _restarting:
 		return
 	_restarting = true
+	_picked_scene_items.clear()
 	Game.send("game:story-start")
 	Modals.close_all()
 	if gm != null:
@@ -1527,6 +1649,43 @@ func _input(event: InputEvent) -> void:
 					gm.toggle()
 				get_viewport().set_input_as_handled()
 
+func verb_hint() -> String:
+	return _verb_hint
+
+## The HUD bar's buttons go through here; every destination is the same panel
+## the hotkey opens, so there is no button-only code path to keep in sync.
+func open_panel(which: String) -> void:
+	match which:
+		"status": _toggle_panel(status_panel)
+		"log": _toggle_panel(log_panel)
+		"map": _toggle_panel(map_panel)
+		"help": _toggle_panel(help_panel)
+		"bag": _toggle_panel(bag_ui)
+		"quest": _toggle_panel(quest_ui)
+		"volume": _toggle_panel(volume_ui)
+		"mech":
+			if mech != null:
+				mech.toggle_visible()
+		"save": quick_save()
+		"load": quick_load()
+		"gm":
+			if gm != null:
+				if gm.is_open:
+					gm.toggle()
+				else:
+					Modals.close_all()
+					gm.toggle()
+
+## New panels toggle with their own key; an already-open panel consumes that
+## key in modal_input() and closes itself, so this only handles the opening half.
+func _toggle_panel(panel: Variant) -> void:
+	if panel == null:
+		return
+	if bool(panel.is_open):
+		panel.close()
+	elif not Modals.is_modal_open():
+		panel.open()
+
 func _unhandled_input(event: InputEvent) -> void:
 	# Open panels own their keys, top of the stack first. A new panel only has
 	# to push itself and implement modal_input() — there is no branch to add
@@ -1549,6 +1708,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_O:
 			if not Modals.is_modal_open() and volume_ui != null:
 				volume_ui.open()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_C:
+			_toggle_panel(status_panel)
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_L:
+			_toggle_panel(log_panel)
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_M:
+			_toggle_panel(map_panel)
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_H:
+			_toggle_panel(help_panel)
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_F1:
@@ -1574,17 +1749,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		var target_id := _nearest_interactable(player.position, 48.0)
 		if target_id != "":
 			_interact_entity(target_id)
-			# Quests may track a world target by its entity id; with no such
-			# objective Scheme's game:quest-target is a cheap no-op.
-			Game.send("game:quest-target", [target_id])
+			# Quests may track a world target by its entity id. Wait for the
+			# verdict and say so out loud — otherwise "按了 E 只出个提示"
+			# makes a quest step feel broken even when it advanced.
+			var moved: Variant = await Game.call_async("game:quest-target", [target_id])
+			var feedback := _target_feedback(target_id, bool(moved))
+			if feedback != "":
+				_log_line(feedback)
 		else:
 			var npc := _nearest_npc(player.position, 30.0)
 			if npc != null:
 				# A `target` objective may point at an NPC (阿笋 in the finale).
 				# The dialog opens just as it always does; Scheme decides
 				# whether this interaction advances anything.
-				Game.send("game:quest-target", ["npc:" + str(npc.get("npc_id"))])
 				dialog_ui.open_npc(npc)
+				# Fire-and-forget: awaiting this RPC would delay the dialog
+				# opening by a worker round-trip and scripts pressing E then a
+				# topic would race it. Feedback still arrives via the reply.
+				Game.send("game:quest-target", ["npc:" + str(npc.get("npc_id"))])
 		get_viewport().set_input_as_handled()
 
 func _exit_tree() -> void:
@@ -1659,6 +1841,10 @@ func _process(delta: float) -> void:
 	_move_npcs(delta)
 	_track_footsteps()
 	_track_story_place()
+	# The talk panel is authored at layer 10, below this code-built HUD. Hide
+	# the HUD while talking so the status cards never sit on top of the dialog.
+	if hud_bar != null:
+		hud_bar.visible = not dialog_ui.is_open
 	_update_verb_hint()
 	if player != null and not _portal_traveling and not player.scripted:
 		if _portal_wait_release:
@@ -1695,6 +1881,7 @@ func _try_pick(node: Node2D, type_id: String) -> void:
 	if not is_instance_valid(node):
 		return
 	if bool(ok):
+		_picked_scene_items[_pick_key(node)] = true
 		Audio.play("pickup")
 		# A herb now has a real sprite, so make the moment it vanishes readable
 		# too: the HUD hint says what was picked up instead of silently +1.

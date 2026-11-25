@@ -19,6 +19,7 @@ const COLUMNS := 10
 const SLOT_COUNT := 30  # keep in sync with inventory.scm bag-slots
 const ItemSlots := preload("res://scripts/item_slots.gd")
 const ItemIcons := preload("res://scripts/item_icons.gd")
+const PanelUtil := preload("res://scripts/panel_util.gd")
 
 var is_open := false
 
@@ -43,6 +44,7 @@ func setup(font: Font) -> void:
 	layer = 25  # above HUD/dialog (10) and the mechanism HUD (20)
 	name = "BagPanelLayer"
 	_build()
+	PanelUtil.add_close_button(self, font)
 	Game.snapshot_changed.connect(_on_snapshot_changed)
 	Game.bridge_ready.connect(_on_bridge_ready)
 	visible = false

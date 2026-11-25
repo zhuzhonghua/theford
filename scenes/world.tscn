@@ -2326,32 +2326,16 @@ offset = Vector2(-24, -48)
 region_enabled = true
 region_rect = Rect2(0, 32, 48, 48)
 
-[node name="Ore1" type="Sprite2D" parent="." unique_id=1346222274 instance=ExtResource("3_xo05s")]
+[node name="SpawnPoints" type="Node2D" parent="."]
+
+[node name="ore-1" type="Marker2D" parent="SpawnPoints"]
 position = Vector2(72, 56)
 
-[node name="Ore2" type="Sprite2D" parent="." unique_id=1962430465 instance=ExtResource("3_xo05s")]
+[node name="ore-2" type="Marker2D" parent="SpawnPoints"]
 position = Vector2(616, 120)
 
-[node name="Ore3" type="Sprite2D" parent="." unique_id=801032830 instance=ExtResource("3_xo05s")]
+[node name="ore-3" type="Marker2D" parent="SpawnPoints"]
 position = Vector2(664, 360)
-
-[node name="Herb1" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(136, 160)
-
-[node name="Herb2" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(152, 184)
-
-[node name="Herb3" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(208, 144)
-
-[node name="Herb4" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(200, 136)
-
-[node name="Herb5" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(152, 224)
-
-[node name="Herb6" type="Sprite2D" parent="." instance=ExtResource("15_herb")]
-position = Vector2(184, 208)
 
 [node name="Slime1" type="Sprite2D" parent="." instance=ExtResource("14_slime")]
 position = Vector2(272, 408)
@@ -2446,7 +2430,7 @@ position = Vector2(360, 392)
 metadata/entity_id = "winch"
 metadata/entity_type = "fixture/clue/winch"
 metadata/entity_tags = ["clue", "rope"]
-metadata/entity_props = [["text", "绞盘：老王重打的铁绞盘，就差一截缆绳了。"]]
+metadata/entity_props = [["text", "绞盘：老王重打的铁绞盘。把新缆绳绕上去再拉紧——先找阿笋问清旧缆绳为什么被剪。"]]
 
 [node name="Stand" type="Polygon2D" parent="Winch"]
 polygon = PackedVector2Array(-13, 6, 13, 6, 9, 10, -9, 10)

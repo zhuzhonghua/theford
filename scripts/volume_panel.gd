@@ -10,6 +10,8 @@ extends CanvasLayer
 ## Acceptance drives the same sliders through set_slider(), not a backend
 ## shortcut, so a scripted drag exercises the same signal path as a mouse drag.
 
+const PanelUtil := preload("res://scripts/panel_util.gd")
+
 const ROWS := [
 	{"key": "master", "name": "主音量"},
 	{"key": "music", "name": "音乐"},
@@ -28,6 +30,7 @@ func setup(font: Font) -> void:
 	layer = 27  # above bag (25) / container (26), below game-over / GM / acceptance
 	name = "VolumePanelLayer"
 	_build()
+	PanelUtil.add_close_button(self, font)
 	visible = false
 
 ## ------------------------------------------------------------------ flow --

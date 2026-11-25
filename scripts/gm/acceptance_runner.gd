@@ -760,6 +760,81 @@ func _execute(step: Variant, id: int) -> String:
 				return "fact 不存在：" + fact_key
 			if step.size() >= 3 and str(found_v) != str(step[2]):
 				return "fact 期望 %s，实际 %s" % [str(step[2]), str(found_v)]
+		"assert-hud-message":
+			if step.size() < 2:
+				return "assert-hud-message 缺少文本"
+			if main.hud_bar == null:
+				return "HUD 不可用"
+			var needle_hud := str(step[1])
+			_current.text = "断言：消息栈含 " + needle_hud
+			if not needle_hud in main.hud_bar.messages_text():
+				return "消息栈未包含：" + needle_hud
+		"click-hud-button":
+			if step.size() < 2:
+				return "click-hud-button 缺少按钮名"
+			if main.hud_bar == null:
+				return "HUD 按钮条不可用"
+			_current.text = "点击 HUD 按钮：" + str(step[1])
+			if not main.hud_bar.press_button(str(step[1])):
+				return "没有这个 HUD 按钮：" + str(step[1])
+			await _pause(0.2)
+		"click-panel-close":
+			if step.size() < 2:
+				return "click-panel-close 缺少面板名"
+			var close_target: Variant = null
+			match str(step[1]):
+				"status": close_target = main.status_panel
+				"log": close_target = main.log_panel
+				"map": close_target = main.map_panel
+				"help": close_target = main.help_panel
+				"bag": close_target = main.bag_ui
+				"quest": close_target = main.quest_ui
+				"volume": close_target = main.volume_ui
+				"story": close_target = main.story_ui
+				_: return "未知面板：" + str(step[1])
+			if close_target == null:
+				return "面板不可用：" + str(step[1])
+			_current.text = "点击面板关闭按钮：" + str(step[1])
+			var close_util := load("res://scripts/panel_util.gd")
+			if not close_util.press_close(close_target):
+				return "面板没有关闭按钮：" + str(step[1])
+			await _pause(0.2)
+		"assert-ui-panel":
+			if step.size() < 3:
+				return "assert-ui-panel 需要面板名与 open|closed"
+			var which_panel := str(step[1])
+			var want_panel_open := str(step[2]) == "open"
+			var target_panel: Variant = null
+			match which_panel:
+				"status": target_panel = main.status_panel
+				"log": target_panel = main.log_panel
+				"map": target_panel = main.map_panel
+				"help": target_panel = main.help_panel
+				_: return "未知面板：" + which_panel
+			if target_panel == null:
+				return "面板不可用：" + which_panel
+			_current.text = "断言：面板 %s %s" % [which_panel, "打开" if want_panel_open else "关闭"]
+			if bool(target_panel.is_open) != want_panel_open:
+				return "期望%s，实际%s" % [
+					"打开" if want_panel_open else "关闭",
+					"打开" if bool(target_panel.is_open) else "关闭"]
+		"assert-log-panel-text":
+			if step.size() < 2:
+				return "assert-log-panel-text 缺少文本"
+			if main.log_panel == null or not main.log_panel.is_open:
+				return "日志面板没有打开"
+			var needle_log := str(step[1])
+			_current.text = "断言：日志面板含 " + needle_log
+			if not needle_log in main.log_panel.log_text():
+				return "日志面板未包含：" + needle_log
+		"assert-map-panel-items":
+			if main.map_panel == null or not main.map_panel.is_open:
+				return "地图面板没有打开"
+			var count_map: int = main.map_panel.item_count()
+			_current.text = "断言：地图上有至少 %d 个标记" % int(step[1]) if step.size() >= 2 else "断言：地图有标记"
+			var need_map := int(step[1]) if step.size() >= 2 else 1
+			if count_map < need_map:
+				return "地图标记不足：%d < %d" % [count_map, need_map]
 		"assert-story-fact-absent":
 			if step.size() < 2:
 				return "assert-story-fact-absent 缺少 fact id"

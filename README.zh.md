@@ -78,6 +78,7 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
 - **音频**：村庄 BGM 循环播放；脚步声跟着实际走过的距离响（音高微随机）；下雨时雨声淡入、
   进屋后消失；拾取/砍树/命中/击杀/对话/任务完成/死亡各有对应音效，Music 与 SFX 分轨。
   音效路径都在 `scheme/game/data/catalog.scm`；`THEFORD_DEBUG_AUDIO=1` 可打印每次播放
+- **HUD 按参考项目做成四角布局**：左上可点击小地图、右上钟盒+任务目标、底部中央生命/经验/手持与当前动作提示、右下 40px 木纹图标按钮（状态/日志/地图/帮助/背包/任务/音量/机制/GM，**不含存档读档**，用 F5/F9 或 GM）；左下是自动淡出的消息栈——按 E 读牌、砍树、拾取等反馈会在这里出现几秒，不再"按了没提示"。面板统一羊皮纸底 + 木框 + 标题栏像素 ✕ 关闭按钮；世界地图是左侧点阵示意图 + 右侧名单，不再标签重叠。快捷键仍保留
 - **O** 打开音量面板：主音量 / 音乐 / 音效各一个滑条，拖动即时生效；设置写入
   `user://settings.cfg`，下次启动自动恢复。GM 也支持 `volume` 查看与设置
   （`volume master 50`、`volume music 30`、`volume sfx 70`、`volume reload`）
@@ -93,7 +94,7 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
   `story` 查看剧情事实、`story beat <id>` 手动触发 beat；
   `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开、
   `save` 快存 / `loadgame` 快读 / `reload` 热重载；
-  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` / `load story` / `load story-chain` 回放验收；输入 `help` 看全部指令。
+  `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` / `load story` / `load story-chain` / `load ui-panels` 回放验收；输入 `help` 看全部指令。
   终端里用 `THEFORD_ACCEPTANCE=<name> THEFORD_ACCEPTANCE_QUIT=1` 无头回放会自动快跑（演出等待压缩、打字机直显，通常几秒到二十秒）；在窗口里用 GM `load` 手动观看则保持正常节奏
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。

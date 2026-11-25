@@ -15,6 +15,7 @@ var cjk_font: Font
 @onready var _portrait: TextureRect = $Box/Portrait
 @onready var _name_label: Label = $Box/NameLabel
 @onready var _text: RichTextLabel = $Box/Text
+@onready var _menu: NinePatchRect = $Menu
 @onready var _menu_vbox: VBoxContainer = $Menu/MenuVBox
 
 var is_open := false
@@ -96,8 +97,10 @@ func _add_choice(label: String, topic_key: String, hotkey: int) -> void:
 	if cjk_font:
 		b.add_theme_font_override("font", cjk_font)
 		b.add_theme_font_size_override("font_size", 24)
+	b.custom_minimum_size = Vector2(0, 40)
 	b.pressed.connect(func() -> void: _choose(topic_key))
 	_menu_vbox.add_child(b)
+	_layout_menu()
 
 func _add_choices_after_reply() -> void:
 	_clear_menu()
@@ -106,8 +109,20 @@ func _add_choices_after_reply() -> void:
 	if cjk_font:
 		leave.add_theme_font_override("font", cjk_font)
 		leave.add_theme_font_size_override("font_size", 24)
+	leave.custom_minimum_size = Vector2(0, 40)
 	leave.pressed.connect(close)
 	_menu_vbox.add_child(leave)
+	_layout_menu()
+
+## The menu frame is anchored to the bottom-right of the screen; grow it
+## upward as choices are added so the last button never falls out of the box.
+func _layout_menu() -> void:
+	var count := _menu_vbox.get_child_count()
+	var inner := 20 + count * 46
+	inner = mini(inner, 460)
+	_menu_vbox.offset_bottom = inner - 10
+	_menu.offset_top = -204.0 - inner
+	_menu.offset_bottom = -204.0
 
 func _choose(topic: String) -> void:
 	_clear_menu()

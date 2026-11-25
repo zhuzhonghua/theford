@@ -8,6 +8,8 @@ extends CanvasLayer
 ## Space advances, Esc skips the rest. The panel tells Scheme to pause beat
 ## evaluation while it owns the keyboard so two scenes can never stack up.
 
+const PanelUtil := preload("res://scripts/panel_util.gd")
+
 var is_open := false
 
 var _font: Font
@@ -26,6 +28,7 @@ func setup(font: Font) -> void:
 	layer = 28  # above bag (25), container (26), volume (27)
 	name = "StoryLayer"
 	_build()
+	PanelUtil.add_close_button(self, font)
 	visible = false
 
 ## ------------------------------------------------------------------ flow --

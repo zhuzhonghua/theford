@@ -14,6 +14,7 @@ signal close_requested
 
 const ItemSlots := preload("res://scripts/item_slots.gd")
 const ItemIcons := preload("res://scripts/item_icons.gd")
+const PanelUtil := preload("res://scripts/panel_util.gd")
 const COLUMNS := 10
 const SLOT_COUNT := 30  # keep in sync with inventory.scm bag-slots
 const SLOT_SIZE := 58.0
@@ -46,6 +47,7 @@ func setup(font: Font) -> void:
 	layer = 26  # above the bag panel (25) and the mechanism HUD (20)
 	name = "ContainerPanelLayer"
 	_build()
+	PanelUtil.add_close_button(self, font)
 	Game.snapshot_changed.connect(_on_snapshot_changed)
 	visible = false
 
