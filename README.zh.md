@@ -95,7 +95,8 @@ Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目
   `hp` / `hurt 10` / `heal` 查看或改变生命、`slime smith` 把史莱姆引到村民旁、`restart` 重开、
   `save` 快存 / `loadgame` 快读 / `reload` 热重载；
   `load combat` / `load game-over` / `load flee` / `load audio` / `load volume` / `load quality` / `load prompt` / `load story` / `load story-chain` / `load ui-panels` 回放验收；输入 `help` 看全部指令。
-  终端里用 `THEFORD_ACCEPTANCE=<name> THEFORD_ACCEPTANCE_QUIT=1` 无头回放会自动快跑（演出等待压缩、打字机直显，通常几秒到二十秒）；在窗口里用 GM `load` 手动观看则保持正常节奏
+  终端里用 `THEFORD_ACCEPTANCE=<name> THEFORD_ACCEPTANCE_QUIT=1` 无头回放会自动快跑（演出等待压缩、打字机直显，通常几秒到二十秒）；在窗口里用 GM `load` 手动观看则保持正常节奏。
+  批量跑全部验收用 `./scripts/run_acceptance.sh`（默认 4 个进程并行，`JOBS=8` 可调；默认 `THEFORD_AI_QUALITY=off`）；21 个脚本约 65 秒，失败会打印对应日志。并行而非串行是因为每个脚本独立进程、冷启动和模型加载重复，而 note/wait 早已在 headless 模式下压缩为 1 帧
 - 也可以直接输入中文：`让老王去酒馆`、`把时间暂停`，本地模型会翻译成一条确定性指令
   （`npc smith inn-yard drinking`、`speed 0`）再执行，日志里会显示 `LLM → …`。
   生成受 grammar 约束，模型只能输出合法指令
