@@ -51,7 +51,6 @@ func setup(font: Font) -> void:
 	var auto_on: bool = (
 			force == "1"
 			or OS.get_environment("THEFORD_DEMO_NPC") != ""
-			or OS.get_environment("THEFORD_RECORD_DIR") != ""
 			or OS.get_environment("THEFORD_SNAPSHOT_DIR") != "")
 	if force == "0":
 		auto_on = false

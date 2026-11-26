@@ -37,6 +37,25 @@ cmake --build build --target scmllama_gdextension -j
 
 Platforms: verified only on macOS arm64 (`.gdextension` currently registers a macOS entry only). Linux/Windows require building the extension on that platform and adding the matching entry.
 
+### Demo video
+
+`export/TheFord-Playthrough.mp4` is a 154-second full three-act playthrough. To re-record:
+
+```bash
+mkdir -p export/frames
+THEFORD_MECHANISM=0 THEFORD_AI_QUALITY=off \
+THEFORD_RECORD_DIR="$PWD/export/frames" THEFORD_RECORD_START=0.5 \
+THEFORD_RECORD_DURATION=600 THEFORD_RECORD_FPS=12 \
+THEFORD_ACCEPTANCE=playthrough THEFORD_ACCEPTANCE_QUIT=1 \
+/Applications/Godot.app/Contents/MacOS/Godot --path . scenes/main.tscn
+ffmpeg -y -framerate 12 -i export/frames/f%06d.png -ss 0.5 \
+  -i export/frames/audio.wav \
+  -c:v libx264 -pix_fmt yuv420p -crf 20 -c:a aac -b:a 128k \
+  -shortest -movflags +faststart export/TheFord-Playthrough.mp4
+```
+
+The replay HUD and F1 panel are hidden while recording; the gameplay HUD stays. Audio is captured from the Master bus with `AudioEffectRecord` into `export/frames/audio.wav` and muxed in (`-ss 0.5` aligns it with the first captured frame). Do not use `--write-movie` — this Godot build crashes with the headless rendering driver.
+
 ### Export (macOS)
 
 `export_presets.cfg` ships a macOS preset. After installing the matching export templates in Godot:

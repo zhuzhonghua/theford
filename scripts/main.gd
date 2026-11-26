@@ -164,6 +164,13 @@ func _ready() -> void:
 	hud_bar = HudBar.new()
 	add_child(hud_bar)
 	hud_bar.setup(font, self)
+	# Video capture keeps the gameplay HUD (mini-map, clock, messages); only
+	# the replay progress panel and the F1 mechanism panel are hidden by their
+	# own scripts.
+	_recording_video = OS.get_environment("THEFORD_RECORD_DIR") != ""
+	_maybe_start_recording()
+	if _recording_video:
+		_start_audio_capture()
 	_register_effect_handlers()
 	_setup_gm(font)
 	_setup_audio()
@@ -221,6 +228,11 @@ func _setup_gm(font: Font) -> void:
 ## the Scheme bridge is up (see _start_bgm). This keeps asset paths in
 ## data/catalog.scm — changing the track needs no GDScript edit.
 func _setup_audio() -> void:
+	# Be defensive: a scene reload must never leave two BGM players running
+	# (that used to sound like the track overlapping itself after a restart).
+	for child in get_children():
+		if child.name == "BGM":
+			child.queue_free()
 	var bgm := AudioStreamPlayer.new()
 	bgm.name = "BGM"
 	bgm.bus = "Music"
@@ -259,6 +271,7 @@ func _play_music_for_map(map_id: String) -> void:
 	var bgm: AudioStreamPlayer = get_node_or_null("BGM")
 	if bgm == null:
 		return
+	bgm.stop()  # never let two streams of the same track overlap
 	bgm.stream = theme_stream
 	bgm.play()
 
@@ -355,6 +368,12 @@ func _setup_anchors() -> void:
 	for node in root.get_children():
 		if node is Node2D:
 			_anchors[str(node.name)] = node.position
+	# Spawn markers are named places too, so walks/acceptance can target them.
+	var spawns := world.get_node_or_null("SpawnPoints")
+	if spawns != null:
+		for node in spawns.get_children():
+			if node is Node2D:
+				_anchors[str(node.name)] = node.position
 
 ## Portal markers (world Portals/*): named like the portal id in data/maps.scm.
 ## Godot owns the pixel; Scheme only knows (target map, target anchor, label).
@@ -804,6 +823,9 @@ func _effect_scene(args: Array) -> void:
 	if lines.is_empty():
 		return
 	_log_line(title if not title.is_empty() else str(lines[0][1]))
+	# A beat writes facts before its scene is dispatched; refresh the mirror so
+	# state-aware verb hints / quest text catch up immediately.
+	Game.send("game:story-status")
 	story_ui.open(title, lines)
 
 func _effect_say(args: Array) -> void:
@@ -1553,6 +1575,12 @@ func _restart_game() -> void:
 	# player, so an in-flight hp reply can still say "down". Read it again now
 	# that the player entity is back at full health before releasing the guard.
 	await Game.call_async("game:hp")
+	# Restart is a clean take: stop the old stream and let the map re-arm BGM.
+	var bgm: AudioStreamPlayer = get_node_or_null("BGM")
+	if bgm != null:
+		bgm.stop()
+	_current_music = ""
+	await _play_music_for_map(_current_map_id)
 	_refresh_hud()
 	_restarting = false
 
@@ -1839,6 +1867,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _exit_tree() -> void:
+	_save_audio_capture()
 	# Release the grid explicitly: it is the one RefCounted the scene owns.
 	_astar = null
 
@@ -2019,7 +2048,6 @@ func _maybe_run_headless_demo() -> void:
 	var snap_dir := OS.get_environment("THEFORD_SNAPSHOT_DIR")
 	if npc_id == "" and snap_dir == "":
 		return
-	_maybe_start_recording()
 	_run_headless_demo(npc_id, OS.get_environment("THEFORD_DEMO_TOPICS"),
 			snap_dir, OS.get_environment("THEFORD_DEMO_QUIT") == "1")
 
@@ -2032,11 +2060,56 @@ func _maybe_run_headless_demo() -> void:
 ##   THEFORD_RECORD_DURATION=17.6    capture length (covers ask + cache replay)
 ##   THEFORD_RECORD_FPS=24           pacing; 1920-wide JPEGs, q92
 var _rec_dir := ""
+var _recording_video := false
+var _audio_recorder: AudioEffectRecord = null
 var _rec_next_ms := 0
 var _rec_stop_ms := 0
 var _rec_step_ms := 0
 var _rec_i := 0
 var _rec_done := false
+
+## Record the final mix from the Master bus. Screen capture via Godot frames
+## has no audio, so ffmpeg muxes this WAV with the PNG sequence afterwards.
+func _start_audio_capture() -> void:
+	_audio_recorder = AudioEffectRecord.new()
+	var master := AudioServer.get_bus_index("Master")
+	AudioServer.add_bus_effect(master, _audio_recorder)
+	_audio_recorder.set_recording_active(true)
+
+func _save_audio_capture() -> void:
+	if _audio_recorder == null:
+		return
+	_audio_recorder.set_recording_active(false)
+	var rec: Variant = _audio_recorder.get_recording()
+	if rec is AudioStreamWAV and _rec_dir != "":
+		_write_wav(_rec_dir.path_join("audio.wav"), rec as AudioStreamWAV)
+
+func _write_wav(path: String, wav: AudioStreamWAV) -> void:
+	var data: PackedByteArray = wav.data
+	if data.is_empty():
+		return
+	var channels := 2 if wav.stereo else 1
+	var bits := 16 if wav.format == AudioStreamWAV.FORMAT_16_BITS else 8
+	var rate := int(wav.mix_rate)
+	var block_align := channels * bits / 8
+	var byte_rate := rate * block_align
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string("RIFF")
+	file.store_32(36 + data.size())
+	file.store_string("WAVEfmt ")
+	file.store_32(16)
+	file.store_16(1)  # PCM
+	file.store_16(channels)
+	file.store_32(rate)
+	file.store_32(byte_rate)
+	file.store_16(block_align)
+	file.store_16(bits)
+	file.store_string("data")
+	file.store_32(data.size())
+	file.store_buffer(data)
+	file.close()
 
 func _maybe_start_recording() -> void:
 	_rec_dir = OS.get_environment("THEFORD_RECORD_DIR")

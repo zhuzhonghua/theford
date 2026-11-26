@@ -26,6 +26,7 @@ var _pace := 1.0
 ## (note holds, per-step pauses, typewriters). A GM `load <name>` in a windowed
 ## editor keeps the human-paced playback so it stays readable.
 var fast_headless := false
+var hide_panel := false  # video capture: keep the replay HUD out of the frame
 var _lines: Array[String] = []
 var _audio_backup := {}   # so a volume replay leaves the player's mix alone
 var _last_prompt := ""    # last prompt fetched by an assert-prompt-* step
@@ -39,9 +40,13 @@ var _hint: Label
 func setup(main_node: Node, gm_node: CanvasLayer, font: Font) -> void:
 	main = main_node
 	gm = gm_node
-	fast_headless = DisplayServer.get_name() == "headless"
+	fast_headless = DisplayServer.get_name() == "headless" \
+			and OS.get_environment("THEFORD_ACCEPTANCE_VIDEO") != "1"
+	hide_panel = OS.get_environment("THEFORD_RECORD_DIR") != ""
 	layer = 35
 	_build(font)
+	if hide_panel:
+		_panel.visible = false
 
 func is_running() -> bool:
 	return _active
@@ -75,7 +80,7 @@ func start() -> void:
 	_run_id += 1
 	_lines.clear()
 	_log.text = ""
-	_panel.visible = true
+	_panel.visible = not hide_panel
 	_hint.text = "Esc 中止"
 	_run(_run_id)
 

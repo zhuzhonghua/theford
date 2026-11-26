@@ -37,6 +37,25 @@ cmake --build build --target scmllama_gdextension -j
 平台：目前仅在 macOS arm64 上验证（`.gdextension` 只注册了 macos 条目）；
 Linux/Windows 需在对应平台构建扩展，并在该文件里补对应条目。
 
+### 演示视频
+
+`export/TheFord-Playthrough.mp4` 是完整三幕通关录屏（154 秒）。复录：
+
+```bash
+mkdir -p export/frames
+THEFORD_MECHANISM=0 THEFORD_AI_QUALITY=off \
+THEFORD_RECORD_DIR="$PWD/export/frames" THEFORD_RECORD_START=0.5 \
+THEFORD_RECORD_DURATION=600 THEFORD_RECORD_FPS=12 \
+THEFORD_ACCEPTANCE=playthrough THEFORD_ACCEPTANCE_QUIT=1 \
+/Applications/Godot.app/Contents/MacOS/Godot --path . scenes/main.tscn
+ffmpeg -y -framerate 12 -i export/frames/f%06d.png -ss 0.5 \
+  -i export/frames/audio.wav \
+  -c:v libx264 -pix_fmt yuv420p -crf 20 -c:a aac -b:a 128k \
+  -shortest -movflags +faststart export/TheFord-Playthrough.mp4
+```
+
+录制时隐藏验收进度面板与 F1 机制 HUD，保留游戏 HUD；声音由 Master 总线的 `AudioEffectRecord` 录成 `export/frames/audio.wav` 再合流（`-ss 0.5` 对齐帧捕获起点）。不要用 `--write-movie`（该版本 headless 渲染驱动会崩）。
+
 ### 导出（macOS）
 
 `export_presets.cfg` 里带了一个 macOS 预设。在 Godot 装好对应导出模板后：

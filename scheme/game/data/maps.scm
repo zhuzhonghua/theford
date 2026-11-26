@@ -32,7 +32,8 @@
       (anchors = '("herb-garden" "apothecary-stand" "herb-1" "herb-2" "herb-3" "herb-4" "herb-5" "herb-6"
                    "inn" "inn-yard" "riverbank" "village-square"
                    "smith-home" "apothecary-home" "innkeeper-home" "smithy-door"
-                   "river-mud" "rope-end" "winch" "axun-stand" "axun-spot"))
+                   "river-mud" "rope-end" "winch" "axun-stand" "axun-spot"
+                   "ore-1" "ore-2" "ore-3"))
       (portals = (list
                    (table (id = 'to-smithy) (to = 'smithy)
                           (at = "smithy:door") (label = "铁匠铺"))))
