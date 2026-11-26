@@ -46,8 +46,8 @@ const HELP := "GM 指令（F8 开关）:
   volume music 30 / volume sfx 70
   volume open / close       开关音量滑条面板（等同 O 键）
   volume reload             从 settings.cfg 重读（验证重开保持）
-  quality                   查看 AI 档位（off|low|medium|high）
-  quality off               切换 AI 档位（0-3 也接受；off 不请求模型）
+  quality                   查看 AI 档位（low|medium|high）
+  quality low               切换 AI 档位（1-3 也接受；没有 off 档）
   prompt smith village      打印该回合送进 LLM 的 prompt（看情境行；改天气/时钟后再打一次对比）
   story                     查看剧情事实 / 最近 beat
   story beat <id>           手动触发一个 beat（验收用；生产时由时钟/位置触发）
@@ -453,24 +453,22 @@ func _volume_state() -> String:
 
 ## AI quality is the player's setting, not save state: it comes from
 ## THEFORD_AI_QUALITY at boot and can be switched here (a deterministic twin of
-## the options screens the reference keeps outside saves). Switching up from
-## off boots the model on the worker thread; switching down keeps it loaded but
-## stops asking (learned lines from higher tiers still answer).
+## the options screens the reference keeps outside saves). There is no off
+## tier: the GGUF always loads; switching only changes token budget / tier replay.
 func _quality(args: PackedStringArray) -> String:
 	if args.is_empty():
-		return "AI 档位：%s（quality off|low|medium|high；0-3 也可）" % _quality_name()
+		return "AI 档位：%s（quality low|medium|high；1-3 也可）" % _quality_name()
 	var q := args[0].to_lower()
 	match q:
-		"0": q = "off"
-		"1": q = "low"
+		"0", "off", "1": q = "low"
 		"2": q = "medium"
 		"3": q = "high"
-	if not ["off", "low", "medium", "high"].has(q):
-		return "用法：quality [off|low|medium|high|0-3]"
+	if not ["low", "medium", "high"].has(q):
+		return "用法：quality [low|medium|high|1-3]（没有 off 档）"
 	var info: Variant = await Game.call_async("game:set-ai-quality", [q])
 	if not (info is Array):
 		return "AI 档位切换失败"
-	var loaded := "模型已加载" if bool(info[1]) else "模型未加载（预置台词）"
+	var loaded := "模型已加载" if bool(info[1]) else "模型未加载"
 	return "AI 档位 → %s（%s）" % [_quality_name(), loaded]
 
 func _quality_name() -> String:

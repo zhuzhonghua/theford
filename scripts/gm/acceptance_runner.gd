@@ -1020,7 +1020,7 @@ func _execute(step: Variant, id: int) -> String:
 			var want_start := "medium"
 			match env_raw:
 				"", "2", "medium": want_start = "medium"
-				"0", "off": want_start = "off"
+				"0", "off", "1", "low": want_start = "low"
 				"1", "low": want_start = "low"
 				"3", "high": want_start = "high"
 			var have_start := str(Game.snapshot.get("ai_quality", ""))

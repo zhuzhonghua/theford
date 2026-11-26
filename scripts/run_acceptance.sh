@@ -14,7 +14,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}"
 JOBS="${JOBS:-4}"
-QUALITY="${THEFORD_AI_QUALITY:-off}"
+QUALITY="${THEFORD_AI_QUALITY:-medium}"
 LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/theford-acceptance.XXXXXX")"
 
 ALL_SCRIPTS=(

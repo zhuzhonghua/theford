@@ -168,14 +168,15 @@ func _find_model_path() -> String:
 			return candidate
 	return ""
 
-## $THEFORD_AI_QUALITY accepts a name or 0..3; unknown values keep the default.
+## $THEFORD_AI_QUALITY accepts low/medium/high or 1..3. off/0 are rejected to
+## low: the product always boots the GGUF and blocks entry if it fails.
 func _read_ai_quality() -> String:
 	var raw := OS.get_environment("THEFORD_AI_QUALITY").strip_edges().to_lower()
 	match raw:
 		"", "2", "medium":
 			return "medium"
-		"0", "off":
-			return "off"
+		"0", "off", "1", "low":
+			return "low"
 		"1", "low":
 			return "low"
 		"3", "high":
@@ -199,8 +200,7 @@ func _worker_main() -> void:
 		err = vm.load_file(_main_scm)
 
 	if err == "":
-		# The AI level is set before boot so an `off` startup never touches the
-		# GGUF (fast boot, no model memory). Switching up later boots on demand.
+		# Quality only changes token budget/tier replay; the GGUF always loads.
 		vm.call_fn("game:set-ai-quality", [ai_quality])
 		if _model_path != "":
 			vm.call_fn("game:set-model-path", [_model_path])
@@ -287,10 +287,8 @@ func _on_ready(m: Dictionary) -> void:
 	booted = true
 	if vm_error != "":
 		push_error("[scmllama] Scheme bootstrap failed: " + vm_error)
-	elif ai_quality == "off":
-		print("[TheFord] AI 档位 off：不加载模型，NPC 使用预置台词（quality 可随时开启）")
 	elif not use_llm:
-		print("[TheFord] 未找到模型，NPC 将使用预置台词（THEFORD_MODEL 可指定 GGUF 路径）")
+		push_error("[TheFord] 模型加载失败：无法进入游戏（检查 models/ 或 THEFORD_MODEL）")
 	emit_signal("bridge_ready", use_llm)
 
 ## engine-info = (model-desc use-llm? llama.cpp-version ai-quality); the same

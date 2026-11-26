@@ -69,7 +69,7 @@ The native Scheme VM reads with `fopen`, so the .scm files cannot stay inside th
 
 The 378 MB GGUF is **not** packed into the app. Copy it next to the binary (or into the app bundle's `Contents/Resources/`), or set `$THEFORD_MODEL` to its absolute path. Without a model the game still runs on canned dialogue.
 
-Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (editor) or beside the exported binary → `user://`. The model is not tracked by git; see for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF). Set `THEFORD_AI_QUALITY=0` (or `off`) to run with **no model at all** — NPCs use canned lines and the game is still completable. The four levels are `off` / `low` (64 tokens) / `medium` (default, 120) / `high` (200); higher learned lines replay at lower levels, never the other way around.
+Model lookup order: `$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf` (editor) or beside the exported binary → `user://`. The model is not tracked by git; see for example [unsloth/Qwen3-0.6B-GGUF](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF). The model is a hard dependency: if it fails to load, an error panel blocks entry and the game cannot be played. There is no `off` tier — `THEFORD_AI_QUALITY` accepts `low` (64 tokens) / `medium` (default, 120) / `high` (200) or 1/2/3; `0`/`off` normalize to `low`. Higher learned lines replay at lower levels, never the other way around.
 
 ## Gameplay
 

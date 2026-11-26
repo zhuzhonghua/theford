@@ -47,7 +47,7 @@
 ;;   game:load path             (save.scm) load that source, returns (ok status)
 ;;
 ;; Playable without a model: when *use-llm* is #f every NPC falls back to
-;; the canned reply table, and the quest still completes end to end.
+;; a placeholder reply, and the quest still completes end to end.
 ;;
 ;; Modules (each may be read on its own; require caches by module name):
 ;;   data/world.scm   world parameters (seed, start, startHour, params)

@@ -50,29 +50,9 @@
 
 ;; A fact-driven line wins over the generic canned greet; quest stages still
 ;; come next, so a giver's current stage is not lost when a story fact is set.
-(define (key-name v)
-  (cond ((symbol? v) (symbol->string v))
-        ((string? v) v)
-        ((pair? v) (key-name (car v)))
-        (else "")))
-
-(define (fact-greeting npc)
-  (let ((prefix (string-append (symbol->string npc) "/")))
-    (let loop ((pairs (hash-table->alist *fact-greetings*)))
-      (cond ((null? pairs) #f)
-            (else
-              (let* ((key (key-name (car pairs)))
-                     (slash (string-index key "/")))
-                (if (and slash
-                         (string-prefix? prefix key)
-                         (story:fact (string->symbol (substring key (+ slash 1) (string-length key)))))
-                    (cdr pairs)
-                    (loop (cdr pairs)))))))))
-
 (define (greeting-for npc)
   (let* ((qid (quest-for-npc npc))
-         (line (or (fact-greeting npc)
-                   (and qid (qcur-field qid 'greet #f))
+         (line (or (and qid (qcur-field qid 'greet #f))
                    (table-ref (npc-fallback npc) 'greet)
                    "……")))
     (list line (if qid (qtext qid) "") (ore-carried))))

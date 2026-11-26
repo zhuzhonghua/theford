@@ -11,7 +11,7 @@
 - **引擎**：Godot 4.x（本机 4.7.2），只做表现层
 - **脚本**：`scheme/game/main.scm` 拥有全部游戏状态（任务状态机/对话历史/背包）
 - **LLM**：scmllama（dummyscheme + llama.cpp）以 GDExtension 形式内嵌，
-  本地 Qwen3-0.6B 生成 NPC 台词；无模型时自动回退预置台词，游戏照样可通关
+  本地 Qwen3-0.6B 生成 NPC 台词（权重随包分发）；无模型时只回退占位符 `……`，任务仍可通关但没有台词
 - **素材**：Ninja Adventure（CC0）+ lsw 自绘 CC0 素材
 
 ## 运行
@@ -71,12 +71,12 @@ ffmpeg -y -framerate 12 -i export/frames/f%06d.png -ss 0.5 \
 `include_filter` 显式包含 `*.scm`（Godot 把它们当纯文本，默认不会导出）。
 
 378 MB 的 GGUF **不**打进 app：把它拷到可执行文件旁（或 app 包的
-`Contents/Resources/`），或用 `$THEFORD_MODEL` 指向绝对路径。没有模型也能玩，只是用预置台词。
+`Contents/Resources/`），或用 `$THEFORD_MODEL` 指向绝对路径。**模型是硬依赖**：加载失败会弹出提示并阻止进入游戏。
 
 模型查找顺序：`$THEFORD_MODEL` → `models/Qwen3-0.6B-Q4_K_M.gguf`（编辑器）或导出程序旁的
-同名文件 → `user://`。模型文件不入 git。设 `THEFORD_AI_QUALITY=0`（或 `off`）可
-**完全不加载模型**：NPC 用预置台词，游戏照样能通关。
-四档为 `off` / `low`（64 tok）/ `medium`（默认 120 tok）/ `high`（200 tok）；高档生成的台词可供低档回放，反之不行。
+同名文件 → `user://`。模型文件不入 git。**没有 off 档**；`THEFORD_AI_QUALITY` 只接受
+`low`（64 tok）/ `medium`（默认 120 tok）/ `high`（200 tok）或 1/2/3，0/off 会归一到 low。
+高档生成的台词可供低档回放，反之不行。
 
 
 ## 玩法

@@ -1,7 +1,7 @@
 ;; llm.scm — optional local-model plumbing (scmllama) and output cleanup.
 ;;
 ;; The game is fully playable without a model: *use-llm* stays #f and every
-;; NPC falls back to canned lines. No pcall anywhere on purpose: the VM call
+;; NPC falls back to a placeholder. No pcall anywhere on purpose: the VM call
 ;; boundary already catches everything (scm_apply reports an error string to
 ;; Godot), and degradation happens there — a failed boot means canned lines,
 ;; a failed turn means the silent-turn message. Internal helpers are written
@@ -35,10 +35,10 @@
 
 ;; ---- AI quality -------------------------------------------------------------
 ;; How much the local model does, mirroring the reference's AI setting: a
-;; player preference (not world state, so never saved) with four levels.
-;; There is one AI category here — NPC lines — so a level only sets the
-;; generation budget and which learned answers may be replayed:
-;;   off     no model request at all (learned lines still answer)
+;; player preference (not world state, so never saved) with three levels.
+;; There is no "off": the GGUF ships with the product and boot failure blocks
+;; entry in the shell. A level only sets the generation budget and which
+;; learned answers may be replayed:
 ;;   low     short replies (64 tokens)
 ;;   medium  default (120 tokens)
 ;;   high    long replies (200 tokens)
@@ -47,27 +47,24 @@
 ;; tiers existed count as medium.
 (define *ai-quality* 'medium)
 
-;; 0..3 and names are both accepted; anything unknown falls back to medium.
+;; 1..3 and names are both accepted. off / 0 are rejected to low: the product
+;; always boots the local model, so there is no silent tier to disable it.
 (define (quality-of x)
-  (cond ((eq? x 'off) 'off)
-        ((eq? x 'low) 'low)
+  (cond ((eq? x 'low) 'low)
         ((eq? x 'medium) 'medium)
         ((eq? x 'high) 'high)
         ((number? x)
-         (cond ((<= x 0) 'off)
-               ((= x 1) 'low)
+         (cond ((<= x 1) 'low)
                ((= x 2) 'medium)
                (else 'high)))
         ((string? x)
-         (cond ((or (string=? x "0") (string=? x "off")) 'off)
-               ((or (string=? x "1") (string=? x "low")) 'low)
+         (cond ((or (string=? x "0") (string=? x "off") (string=? x "1") (string=? x "low")) 'low)
                ((or (string=? x "2") (string=? x "medium")) 'medium)
                ((or (string=? x "3") (string=? x "high")) 'high)
                (else 'medium)))
         (else 'medium)))
 
-(define (quality-off?) (eq? *ai-quality* 'off))
-(define (quality-allows-ai?) (not (quality-off?)))
+(define (quality-allows-ai?) #t)
 
 (define (quality-tokens)
   (cond ((eq? *ai-quality* 'low) 64)
@@ -76,9 +73,8 @@
 
 (define (quality-rank)
   (cond ((eq? *ai-quality* 'low) 1)
-        ((eq? *ai-quality* 'medium) 2)
         ((eq? *ai-quality* 'high) 3)
-        (else 0)))
+        (else 2)))
 
 (define (tier-rank tier)
   (cond ((eq? tier 'low) 1)
@@ -86,8 +82,8 @@
         ((eq? tier 'high) 3)
         (else 2)))
 
-;; Does an answer made at `tier` serve the current setting? off (rank 0) takes
-;; every tier, just as the reference's off setting asks nothing and replays all.
+;; Does an answer made at `tier` serve the current setting? Higher tiers
+;; serve lower settings; lower answers never serve a higher setting.
 (define (tier-serves? tier)
   (>= (tier-rank tier) (quality-rank)))
 
@@ -115,8 +111,8 @@
   (set! *model-path* path))
 
 ;; The player's AI setting. Returning engine-info lets the bridge refresh the
-;; HUD and its use_llm flag from one reply. Switching up from off boots the
-;; model on demand (the worker thread pays the load, like the initial boot).
+;; HUD from one reply. The model is always booted at startup; changing tier
+;; never unloads it.
 (define (game:set-ai-quality q)
   (set! *ai-quality* (quality-of q))
   (if (and (quality-allows-ai?) (not *use-llm*) (string? *model-path*))
@@ -153,7 +149,7 @@
   )
 
 (define (game:boot)
-  (if (and (string? *model-path*) (quality-allows-ai?))
+  (if (string? *model-path*)
       (begin
         (boot-llm)
         *use-llm*)

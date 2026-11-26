@@ -59,6 +59,7 @@ const LogPanel := preload("res://scripts/log_panel.gd")
 const HelpPanel := preload("res://scripts/help_panel.gd")
 const MapPanel := preload("res://scripts/map_panel.gd")
 const HudBar := preload("res://scripts/hud_bar.gd")
+const ModelError := preload("res://scripts/model_error.gd")
 const OreScene := preload("res://scenes/ore.tscn")
 const HerbScene := preload("res://scenes/herb.tscn")
 ## Optional debug module: loaded by path, so deleting scripts/gm/ ships a
@@ -77,6 +78,7 @@ var log_panel: LogPanel = null
 var help_panel: HelpPanel = null
 var map_panel: MapPanel = null
 var hud_bar: HudBar = null
+var model_error: ModelError = null
 var gm: Node = null
 var _restarting := false
 var _saving := false
@@ -164,6 +166,9 @@ func _ready() -> void:
 	hud_bar = HudBar.new()
 	add_child(hud_bar)
 	hud_bar.setup(font, self)
+	model_error = ModelError.new()
+	add_child(model_error)
+	model_error.setup(font, "")
 	# Video capture keeps the gameplay HUD (mini-map, clock, messages); only
 	# the replay progress panel and the F1 mechanism panel are hidden by their
 	# own scripts.
@@ -178,7 +183,7 @@ func _ready() -> void:
 	_setup_weather()
 	Game.snapshot_changed.connect(_refresh_hud)
 	if Game.booted:
-		_after_bridge_ready()
+		_on_bridge_ready(Game.use_llm)
 	else:
 		Game.bridge_ready.connect(_on_bridge_ready)
 	_maybe_run_headless_demo()
@@ -194,8 +199,26 @@ func _maybe_autoplay_acceptance() -> void:
 
 ## The world is static now, so it is ready immediately. Only the HUD text
 ## depends on the Scheme thread (bridge_ready).
-func _on_bridge_ready(_llm: bool) -> void:
+func _on_bridge_ready(llm: bool) -> void:
+	# The GGUF is part of the product. If it failed to load there is no
+	# dialogue at all, so block entry instead of falling back to canned lines.
+	if Game.vm_error != "":
+		_block_with_model_error("Scheme 启动失败：\n" + Game.vm_error)
+		return
+	if not llm:
+		_block_with_model_error(
+			"找不到或无法加载 GGUF 模型。\n\n" \
+			+ "请把 Qwen3-0.6B-Q4_K_M.gguf 放到 models/，\n" \
+			+ "或用环境变量 THEFORD_MODEL 指向有效路径。\n" \
+			+ "本项目以本地 LLM 驱动 NPC 对话，没有模型不能进入游戏。")
+		return
 	_after_bridge_ready()
+
+func _block_with_model_error(message: String) -> void:
+	if model_error != null:
+		model_error.show_error(message)
+	if hud_bar != null:
+		hud_bar.visible = false
 
 func _after_bridge_ready() -> void:
 	_refresh_hud()
@@ -1777,6 +1800,9 @@ func _toggle_panel(panel: Variant) -> void:
 		panel.open()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if model_error != null and model_error.is_open:
+		get_viewport().set_input_as_handled()
+		return
 	# Open panels own their keys, top of the stack first. A new panel only has
 	# to push itself and implement modal_input() — there is no branch to add
 	# here, and no close call to add to travel/reload below.

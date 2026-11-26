@@ -1,6 +1,6 @@
 ;; npcs.scm — lookups over the roster data in data/people.scm.
 ;;
-;; The data itself (names, personas, canned lines, schedules) is not here: this
+;; The data itself (names, personas, schedules) is not here: this
 ;; file only answers "who is this npc" and "where should they be" questions.
 ;; Conversation flow lives in talk.scm; moving the body is Godot's job.
 
