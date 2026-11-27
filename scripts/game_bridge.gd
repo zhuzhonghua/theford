@@ -307,81 +307,112 @@ func _write_engine(eng: Variant, notify: bool = true) -> void:
 		snapshot_changed.emit()
 
 ## Cache the state-bearing parts of replies so the HUD never calls the VM.
+## Table-driven: adding a state-bearing RPC needs one row + one small method,
+## not another branch in a 75-line match.
+const ABSORBERS := {
+	"game:status": "_absorb_status", "game:tick": "_absorb_status",
+	"game:debug-set-time": "_absorb_status", "game:debug-advance": "_absorb_status",
+	"game:debug-set-weather": "_absorb_status",
+	"game:greet": "_absorb_greet", "game:talk": "_absorb_talk",
+	"game:reload": "_absorb_reload", "game:load": "_absorb_load",
+	"game:engine-info": "_absorb_engine", "game:set-ai-quality": "_absorb_engine",
+	"game:people": "_absorb_people", "game:quests": "_absorb_quests",
+	"game:bag": "_absorb_bag", "game:container": "_absorb_container",
+	"game:transfer": "_absorb_container",
+	"game:close-container": "_absorb_close_container",
+	"game:hp": "_absorb_hp", "game:story-status": "_absorb_story",
+}
+## Anything that can move an objective refreshes the log on the next batch,
+## even with the clock paused (GM `speed 0` in acceptance scripts).
+const REFRESH_TRIGGERS := {
+	"game:take": true, "game:talk": true, "game:greet": true,
+	"game:quest-target": true, "game:debug-give": true,
+}
+
 func _absorb(fn: String, result: Variant) -> void:
-	match fn:
-		"game:status", "game:tick", "game:debug-set-time", "game:debug-advance", "game:debug-set-weather":
-			if result is Array and result.size() == 6:
-				_write_snapshot(result[0], result[1], result.slice(2))
-		"game:greet":
-			if result is Array and result.size() >= 3:
-				_write_snapshot(result[1], result[2])
-		"game:talk":
-			if result is Array and result.size() >= 3:
-				_write_snapshot(result[1], result[2])
-			if result is Array and result.size() >= 5 and result[4] is Array:
-				var learned: bool = result.size() >= 4 and bool(result[3])
-				_store_turn(result[4], learned)
-		"game:reload":
-			snapshot["last_turn"] = {}
-			snapshot["container"] = {}
-			if result is Array and result.size() == 6:
-				_write_snapshot(result[0], result[1], result.slice(2))
-			# Even an unchanged status needs a repaint: last_turn was cleared.
-			snapshot_changed.emit()
-		"game:load":
-			# (ok status) — a load replaces every state module, so drop the
-			# per-turn trace and any half-open container view with it.
-			snapshot["last_turn"] = {}
-			snapshot["container"] = {}
-			if result is Array and result.size() == 2:
-				if result[1] is Array and result[1].size() == 6:
-					_write_snapshot(result[1][0], result[1][1], result[1].slice(2))
-			snapshot_changed.emit()
-		"game:engine-info", "game:set-ai-quality":
-			_write_engine(result)
-		"game:people":
-			if result is Array:
-				_write_people(result)
-		"game:quests":
-			# (xp completions rows) — the quest log reads only this cached view.
-			if result is Array and result.size() >= 3:
-				snapshot["xp"] = int(result[0])
-				snapshot["quest_completions"] = int(result[1])
-				snapshot["quests"] = result[2] if result[2] is Array else []
-				snapshot_changed.emit()
-		"game:bag":
-			if result is Array and result.size() >= 1:
-				snapshot["bag"] = result[0] if result[0] is Array else []
-				snapshot["held"] = str(result[1]) if result.size() >= 2 else ""
-				snapshot["bag_slots"] = int(result[3]) if result.size() >= 4 else 0
-				snapshot["bag_capacity"] = int(result[4]) if result.size() >= 5 else 30
-				snapshot_changed.emit()
-		"game:container", "game:transfer":
-			_write_container(result)
-		"game:close-container":
-			snapshot["container"] = {}
-			snapshot_changed.emit()
-		"game:hp":
-			# (hp max-hp down?) — lives in Scheme's entity registry, mirrored
-			# here so the HUD hearts and the death check need no VM call.
-			if result is Array and result.size() >= 2:
-				snapshot["hp"] = int(result[0])
-				snapshot["max_hp"] = int(result[1])
-				snapshot["game_over"] = bool(result[2]) if result.size() >= 3 else false
-				snapshot_changed.emit()
-		"game:story-status":
-			# (facts place last) — the story keeps its own truth in Scheme;
-			# this is a read-only mirror for HUD and acceptance assertions.
-			if result is Array and result.size() >= 3:
-				snapshot["story_facts"] = result[0] if result[0] is Array else []
-				snapshot["story_place"] = str(result[1])
-				snapshot["story_beat"] = str(result[2])
-				snapshot_changed.emit()
-	# Anything that can move an objective refreshes the log on the next batch,
-	# even with the clock paused (GM `speed 0` in acceptance scripts).
-	if fn in ["game:take", "game:talk", "game:greet", "game:quest-target",
-			"game:debug-give"]:
+	var method: String = ABSORBERS.get(fn, "")
+	if method != "":
+		call(method, result)
+	if REFRESH_TRIGGERS.has(fn):
 		send("game:quests")
+
+func _absorb_status(result: Variant) -> void:
+	if result is Array and result.size() == 6:
+		_write_snapshot(result[0], result[1], result.slice(2))
+
+func _absorb_greet(result: Variant) -> void:
+	if result is Array and result.size() >= 3:
+		_write_snapshot(result[1], result[2])
+
+func _absorb_talk(result: Variant) -> void:
+	_absorb_greet(result)
+	if result is Array and result.size() >= 5 and result[4] is Array:
+		var learned: bool = result.size() >= 4 and bool(result[3])
+		_store_turn(result[4], learned)
+
+func _clear_turn() -> void:
+	snapshot["last_turn"] = {}
+	snapshot["container"] = {}
+
+func _absorb_reload(result: Variant) -> void:
+	_clear_turn()
+	_absorb_status(result)
+	# Even an unchanged status needs a repaint: last_turn was cleared.
+	snapshot_changed.emit()
+
+func _absorb_load(result: Variant) -> void:
+	# (ok status) — a load replaces every state module, so drop the per-turn
+	# trace and any half-open container view with it.
+	_clear_turn()
+	if result is Array and result.size() == 2:
+		_absorb_status(result[1])
+	snapshot_changed.emit()
+
+func _absorb_engine(result: Variant) -> void:
+	_write_engine(result)
+
+func _absorb_people(result: Variant) -> void:
+	if result is Array:
+		_write_people(result)
+
+func _absorb_quests(result: Variant) -> void:
+	# (xp completions rows) — the quest log reads only this cached view.
+	if result is Array and result.size() >= 3:
+		snapshot["xp"] = int(result[0])
+		snapshot["quest_completions"] = int(result[1])
+		snapshot["quests"] = result[2] if result[2] is Array else []
+		snapshot_changed.emit()
+
+func _absorb_bag(result: Variant) -> void:
+	if result is Array and result.size() >= 1:
+		snapshot["bag"] = result[0] if result[0] is Array else []
+		snapshot["held"] = str(result[1]) if result.size() >= 2 else ""
+		snapshot["bag_slots"] = int(result[3]) if result.size() >= 4 else 0
+		snapshot["bag_capacity"] = int(result[4]) if result.size() >= 5 else 30
+		snapshot_changed.emit()
+
+func _absorb_container(result: Variant) -> void:
+	_write_container(result)
+
+func _absorb_close_container(_result: Variant) -> void:
+	snapshot["container"] = {}
+	snapshot_changed.emit()
+
+func _absorb_hp(result: Variant) -> void:
+	# (hp max-hp down?) — mirrored here so HUD hearts / death check need no VM.
+	if result is Array and result.size() >= 2:
+		snapshot["hp"] = int(result[0])
+		snapshot["max_hp"] = int(result[1])
+		snapshot["game_over"] = bool(result[2]) if result.size() >= 3 else false
+		snapshot_changed.emit()
+
+func _absorb_story(result: Variant) -> void:
+	# (facts place last) — read-only mirror of Scheme's story state.
+	if result is Array and result.size() >= 3:
+		snapshot["story_facts"] = result[0] if result[0] is Array else []
+		snapshot["story_place"] = str(result[1])
+		snapshot["story_beat"] = str(result[2])
+		snapshot_changed.emit()
 
 ## An open container view is (id name capacity slots-used rows); #f closes it.
 func _write_container(result: Variant) -> void:
@@ -449,7 +480,8 @@ func _store_turn(decision: Array, learned: bool) -> void:
 ## Queue a call and return immediately; the result comes back via rpc_replied.
 ## Only awaited calls retain their reply in _replies; fire-and-forget ticks do
 ## not grow that dictionary for the lifetime of the game.
-func send(fn: String, args: Array = [], keep_reply: bool = false) -> int:
+## One ticket/queue implementation for all three public entry points.
+func _enqueue(fn: String, args: Array, keep_reply: bool, load_path := "") -> int:
 	var ticket := _next_ticket
 	_next_ticket += 1
 	if not _running:
@@ -457,38 +489,37 @@ func send(fn: String, args: Array = [], keep_reply: bool = false) -> int:
 			_replies[ticket] = null
 		rpc_replied.emit(ticket, null)
 		return ticket
+	var req := {"ticket": ticket, "fn": fn, "args": args, "keep_reply": keep_reply}
+	if load_path != "":
+		req["load_path"] = load_path
 	_mutex.lock()
-	_inbound.append({"ticket": ticket, "fn": fn, "args": args, "keep_reply": keep_reply})
+	_inbound.append(req)
 	_mutex.unlock()
 	_sem.post()
 	return ticket
 
-## Queue a call and await its result without blocking any thread.
-func call_async(fn: String, args: Array = []) -> Variant:
-	var ticket := send(fn, args, true)
+func _await_ticket(ticket: int) -> Variant:
 	while not _replies.has(ticket):
 		await rpc_replied
 	var result: Variant = _replies.get(ticket)
 	_replies.erase(ticket)
 	return result
 
+## Fire-and-forget call; the snapshot absorbs its state reply.
+func send(fn: String, args: Array = [], keep_reply: bool = false) -> int:
+	return _enqueue(fn, args, keep_reply)
+
+## Queue a call and await its result without blocking any thread.
+func call_async(fn: String, args: Array = []) -> Variant:
+	return await _await_ticket(_enqueue(fn, args, true))
+
 ## Load an acceptance script on the VM's worker thread. The caller resolves the
 ## restricted res:// path here on the main thread; the VM only sees a filename.
 func load_async(path: String) -> Variant:
-	var ticket := _next_ticket
-	_next_ticket += 1
 	if not _running:
 		return "逻辑线程未运行"
-	_mutex.lock()
-	_inbound.append({"ticket": ticket, "fn": "acceptance:load", "args": [],
-			"load_path": path, "keep_reply": true})
-	_mutex.unlock()
-	_sem.post()
-	while not _replies.has(ticket):
-		await rpc_replied
-	var result: Variant = _replies.get(ticket)
-	_replies.erase(ticket)
-	return result
+	return await _await_ticket(_enqueue("acceptance:load", [], true, path))
+
 
 ## Dev hot reload: re-read scheme/game/data/*.scm on the worker and reset the
 ## quest, talk caches and clock. Content edits take effect without restarting Godot.

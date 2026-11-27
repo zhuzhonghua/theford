@@ -42,10 +42,32 @@
         ((piece? type) n)
         (else (+ 1 (quotient (- n 1) stack-max)))))
 
-(define (bag-slots-used)
-  (if (null? *bag*)
+;; Slot math shared with containers.scm. A "row" is either (type . count)
+;; (bag) or (type-string count) (container); the accessors are passed in.
+(define (rows-slots-used rows type-of count-of)
+  (if (null? rows)
       0
-      (apply + (map (lambda (row) (row-slots (car row) (cdr row))) *bag*))))
+      (apply + (map (lambda (row) (row-slots (type-of row) (count-of row))) rows))))
+
+(define (rows-fit? used count capacity type n)
+  (<= (+ (- used (row-slots type count))
+         (row-slots type (+ count n)))
+      capacity))
+
+;; ((type-string count display-name sprite-key slots) ...) — the one view
+;; shape the shell expands for both bag and chest grids.
+(define (rows-view rows type-string-of count-of)
+  (map (lambda (row)
+         (let* ((key (type-string-of row))
+                (n (count-of row))
+                (type (string->symbol key))
+                (sprite (type-field type 'sprite #f)))
+           (list key n (type-name type) (if sprite sprite "")
+                 (row-slots type n))))
+       rows))
+
+(define (bag-slots-used)
+  (rows-slots-used *bag* car cdr))
 
 (define (bag-count type)
   (let ((n (alist-get *bag* type)))
@@ -54,9 +76,7 @@
 ;; Whether `n` more of `type` fit: a stack may still have room in its last
 ;; slot, so compare the slots used after with the slots used before.
 (define (bag-fits? type n)
-  (<= (+ (- (bag-slots-used) (row-slots type (bag-count type)))
-         (row-slots type (+ (bag-count type) n)))
-      bag-slots))
+  (rows-fit? (bag-slots-used) (bag-count type) bag-slots type n))
 
 ;; ---- mutations --------------------------------------------------------------
 
@@ -120,14 +140,7 @@
 ;; many grid cells the row takes, so a panel can spill a big stack into the
 ;; next cell without duplicating the slot rules.
 (define (bag-rows)
-  (map (lambda (kv)
-         (let* ((type (car kv))
-                (n (cdr kv))
-                (sprite (type-field type 'sprite #f)))
-           (list (symbol->string type) n (type-name type)
-                 (if sprite sprite "")
-                 (row-slots type n))))
-       *bag*))
+  (rows-view *bag* (lambda (row) (symbol->string (car row))) cdr))
 
 ;; ---- bridge entries --------------------------------------------------------
 
@@ -163,3 +176,8 @@
           (if held (type-name held) "")
           (bag-slots-used)
           bag-slots)))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'bag (lambda () *bag*) (lambda (v) (set! *bag* v)) '())
+(register-save-slot! 'equipped (lambda () *equipped*)
+  (lambda (v) (set! *equipped* v)) #f)

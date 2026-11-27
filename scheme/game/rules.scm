@@ -148,9 +148,9 @@
       (let ((tag (car c)))
         (cond
           ((eq? tag 'all)
-           (every? (lambda (x) (eval-cond x roles params)) (cdr c)))
+           (all-conds (lambda (x) (eval-cond x roles params)) (cdr c)))
           ((eq? tag 'any)
-           (any? (lambda (x) (eval-cond x roles params)) (cdr c)))
+           (any-conds (lambda (x) (eval-cond x roles params)) (cdr c)))
           ((eq? tag 'not)
            (not (eval-cond (cadr c) roles params)))
           ((eq? tag 'same)

@@ -138,3 +138,7 @@
 
 (define (reset-entities!)
   (set! *entities* '()))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'entities (lambda () *entities*)
+  (lambda (v) (set! *entities* v)) '())

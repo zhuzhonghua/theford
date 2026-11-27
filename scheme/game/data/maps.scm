@@ -131,3 +131,7 @@
         (cons 'anchors (map-anchors *current-map*))
         (cons 'portals (map (lambda (p) (table-ref p 'label))
                             (map-portals *current-map*)))))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'map (lambda () *current-map*)
+  (lambda (v) (set! *current-map* v)) 'village)

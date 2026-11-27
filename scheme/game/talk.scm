@@ -41,21 +41,23 @@
         ((string? t) (string->symbol t))
         (else 'greet)))
 
-;; ---- greetings (canned; cheap, no LLM) --------------------------------------
-;; The giver's greeting follows its quest's current stage; others use their
-;; canned line from the roster.
+;; ---- greetings --------------------------------------------------------------
+;; Quest givers keep their stage's scripted greeting (deterministic rule output,
+;; not chatter). Everyone else greets through the same LLM path as any topic —
+;; no canned roster lines exist any more.
 
 (define (game:greet npc)
   (greeting-for (string->symbol npc)))
 
-;; A fact-driven line wins over the generic canned greet; quest stages still
-;; come next, so a giver's current stage is not lost when a story fact is set.
 (define (greeting-for npc)
   (let* ((qid (quest-for-npc npc))
-         (line (or (and qid (qcur-field qid 'greet #f))
-                   (table-ref (npc-fallback npc) 'greet)
-                   "……")))
-    (list line (if qid (qtext qid) "") (ore-carried))))
+         (scripted (and qid (qcur-field qid 'greet #f))))
+    (if scripted
+        (list scripted (qtext qid) (ore-carried))
+        (let* ((player-text (or (table-ref *topic-utterances* 'greet) "……"))
+               (prompt (build-prompt npc player-text (cons 'ignored "") qid))
+               (generated (llm-line npc 'greet qid prompt)))
+          (list (car generated) (if qid (qtext qid) "") (ore-carried))))))
 
 ;; ---- prompt / fallback ------------------------------------------------------
 
@@ -243,3 +245,7 @@
           ((eq? (car verdict) 'rejected)
            (string-append prefix (or (table-ref stage 'say-reject) "")))
           (else (fallback-line npc 'work)))))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'learned (lambda () *learned*)
+  (lambda (v) (set! *learned* v)) '())

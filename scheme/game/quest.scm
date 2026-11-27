@@ -367,3 +367,12 @@
   (set! *quests-state* '())
   (set! *xp* 0)
   (set! *quest-completions* 0))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'xp (lambda () *xp*) (lambda (v) (set! *xp* v)) 0)
+(register-save-slot! 'completions (lambda () *quest-completions*)
+  (lambda (v) (set! *quest-completions* v)) 0)
+(register-save-slot! 'quests (lambda () *quests-state*)
+  (lambda (v) (set! *quests-state* v)) '()
+  (lambda (rows)
+    (map (lambda (row) (cons (car row) (save:quest-table (cdr row)))) rows)))

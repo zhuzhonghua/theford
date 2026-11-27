@@ -90,12 +90,6 @@
 
 ;; ---- condition vocabulary ----------------------------------------------------
 
-(define (story:all-conds rows check)
-  (let loop ((xs rows))
-    (cond ((null? xs) #t)
-          ((check (car xs)) (loop (cdr xs)))
-          (else #f))))
-
 (define (story:carrying? prefix)
   (let loop ((xs *bag*))
     (cond ((null? xs) #f)
@@ -141,15 +135,18 @@
               (any? (lambda (w) (eq? w (current-weather))) weather-v)
               (eq? weather-v (current-weather))))
       (or (not facts-v)
-          (story:all-conds facts-v
+          (all-conds
             (lambda (p)
-              (story:cmp (story:fact-for-compare (car p)) (cadr p)))))
+              (story:cmp (story:fact-for-compare (car p)) (cadr p)))
+            facts-v))
       (or (not quest-v)
-          (story:all-conds quest-v
-            (lambda (p) (eq? (qstate-sym (car p)) (cadr p)))))
+          (all-conds
+            (lambda (p) (eq? (qstate-sym (car p)) (cadr p)))
+            quest-v))
       (or (not carry-v)
-          (story:all-conds carry-v
-            (lambda (t) (story:carrying? t))))
+          (all-conds
+            (lambda (t) (story:carrying? t))
+            carry-v))
       (or (not after-v)
           (story:fact-for-compare
             (string->symbol (string-append "seen." after-v)))))))
@@ -310,3 +307,11 @@
   (set! *story-last* "")
   (set! *story-arrived* #t)
   (set! *story-paused* #f))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'story-facts (lambda () *facts*)
+  (lambda (v) (set! *facts* v)) '())
+(register-save-slot! 'story-place (lambda () *story-place*)
+  (lambda (v) (set! *story-place* v)) "")
+(register-save-slot! 'story-last (lambda () *story-last*)
+  (lambda (v) (set! *story-last* v)) "")

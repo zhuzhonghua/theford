@@ -55,12 +55,8 @@
             (else (loop (cdr rows) n))))))
 
 (define (container-slots-used id)
-  (let loop ((rows (container-contents id)) (n 0))
-    (cond ((null? rows) n)
-          (else
-           (loop (cdr rows)
-                 (+ n (row-slots (string->symbol (car (car rows)))
-                                 (cadr (car rows)))))))))
+  (rows-slots-used (container-contents id)
+                   (lambda (row) (string->symbol (car row))) cadr))
 
 ;; Per-instance capacity wins over the type's default (the chest's is 8).
 (define (container-capacity id)
@@ -70,10 +66,8 @@
         (type-prop (entity-type id) 'capacity 0))))
 
 (define (container-fits? id type n)
-  (<= (+ (- (container-slots-used id)
-           (row-slots type (container-count id type)))
-         (row-slots type (+ (container-count id type) n)))
-      (container-capacity id)))
+  (rows-fit? (container-slots-used id) (container-count id type)
+             (container-capacity id) type n))
 
 ;; ---- mutations --------------------------------------------------------------
 
@@ -118,14 +112,7 @@
 ;; ((type-string count display-name sprite-key slots) ...) — same shape as
 ;; inventory.scm's bag-rows, so the shell expands both with one rule.
 (define (container-rows id)
-  (map (lambda (row)
-         (let* ((type (string->symbol (car row)))
-                (n (cadr row))
-                (sprite (type-field type 'sprite #f)))
-           (list (car row) n (type-name type)
-                 (if sprite sprite "")
-                 (row-slots type n))))
-       (container-contents id)))
+  (rows-view (container-contents id) car cadr))
 
 ;; ---- transfers --------------------------------------------------------------
 ;;
@@ -188,3 +175,7 @@
   (let ((id (string->symbol container)))
     (entity-remove-prop! id 'open)
     #t))
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'containers (lambda () *containers*)
+  (lambda (v) (set! *containers* v)) '())

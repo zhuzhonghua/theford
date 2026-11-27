@@ -43,6 +43,13 @@
 (require "game.util")
 (require "game.data.dialogue")
 
+
+;; Topic menus are the same three shapes in every quest stage; one factory
+;; each keeps the data from repeating the append boilerplate.
+(define (topics-offer) (append *default-topics* '((quest . "接任务"))))
+(define (topics-quest label) (append *default-topics* (list (cons 'quest label))))
+(define (topics-give label) (append *default-topics* (list (cons 'give label))))
+
 (define *quest-order* '(smith-ore apothecary-herbs clues ferry))
 
 (define *quests*
@@ -81,18 +88,15 @@
                     (quest-text = "任务：未接（找铁匠老王聊聊）")
                     (say-reject = "活儿还没接呢，先把矿石找来再说。")
                     (on-accept = 20)
-                    (topics = (append *default-topics*
-                                      '((quest . "接任务")))))
+                    (topics = (topics-offer)))
                   (20
                     (state = 'accepted)
                     (greet = "老王：矿石找着了没？河边滩上冲下来的石头里看好料。")
                     (quest-text = "任务：给老王找铁矿石（已交 {delivered} / {need}，背上还有 {carried} 块）")
                     (objective = 'ore)
                     (say-reject = "这可不行，先把矿石找来。")
-                    (topics-carry = (append *default-topics*
-                                            '((give . "交矿石（背上 {carried} 块）"))))
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊进度"))))
+                    (topics-carry = (topics-give "交矿石（背上 {carried} 块）"))
+                    (topics-empty = (topics-quest "聊聊进度"))
                     (say = "好嘞！三块铁矿石，河边滩上冲下来的石头里看好料。找着了拿来我这儿。")
                     (on-give-complete = 100))
                   (100
@@ -152,16 +156,14 @@
                     (quest-text = "任务：未接（找陈婆聊聊）")
                     (say-reject = "咳，这事你还没答应呢。")
                     (on-accept = 20)
-                    (topics = (append *default-topics*
-                                      '((quest . "接任务")))))
+                    (topics = (topics-offer)))
                   (20
                     (state = 'accepted)
                     (greet = "陈婆：菜地边上那几丛绿叶子，就是我要的草药。")
                     (quest-text = "任务：帮陈婆采药（先问问她要什么）")
                     (objective = 'ask)
                     (say-reject = "先听我把话说完呀。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "问问采药的事"))))
+                    (topics-empty = (topics-quest "问问采药的事"))
                     (say = "渡船一断，药铺的供货也断了。我那几味草药，还得去菜地边自己采。你要是顺路，帮我问问清楚？")
                     (on-talk-complete = 30))
                   (30
@@ -170,10 +172,8 @@
                     (quest-text = "任务：帮陈婆采草药（已交 {delivered} / {need}，背上还有 {carried} 株）")
                     (objective = 'herb)
                     (say-reject = "草药还没采齐呢，别急着交差。")
-                    (topics-carry = (append *default-topics*
-                                            '((give . "交草药（背上 {carried} 株）"))))
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊进度"))))
+                    (topics-carry = (topics-give "交草药（背上 {carried} 株）"))
+                    (topics-empty = (topics-quest "聊聊进度"))
                     (say = "就是菜地边那几丛，五株足够。河边潮气重，别踩滑了。")
                     (on-give-complete = 100))
                   (100
@@ -231,16 +231,14 @@
                     (quest-text = "任务：未接（找张掌柜打听渡船的事）")
                     (say-reject = "这事你还没答应帮忙呢。")
                     (on-accept = 20)
-                    (topics = (append *default-topics*
-                                      '((quest . "接任务")))))
+                    (topics = (topics-offer)))
                   (20
                     (state = 'accepted)
                     (greet = "张掌柜：河滩上留有痕迹，你去瞧瞧，兴许能看出点门道。")
                     (quest-text = "任务：查查渡船断缆（先问清张掌柜的难处）")
                     (objective = 'ask)
                     (say-reject = "先听我把话说完呀。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "问问渡船的事"))))
+                    (topics-empty = (topics-quest "问问渡船的事"))
                     (say = "三天前夜里，河滩上有水声，可第二天谁都没见人。客人们过不来，我这店的灯火都省着点。")
                     (on-talk-complete = 30))
                   (30
@@ -249,8 +247,7 @@
                     (quest-text = "任务：查看河滩泥印")
                     (objective = 'mud)
                     (say-reject = "泥印还没看呢。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊线索"))))
+                    (topics-empty = (topics-quest "聊聊线索"))
                     (say = "河滩上有半串泥印，从水里上来，又折回村里。")
                     (on-target-complete = 40))
                   (40
@@ -259,8 +256,7 @@
                     (quest-text = "任务：查看断口整齐的缆绳")
                     (objective = 'rope)
                     (say-reject = "缆绳的断口还没瞧清楚呢。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊线索"))))
+                    (topics-empty = (topics-quest "聊聊线索"))
                     (say = "断口齐得不像磨断的，是有人用刀割的。")
                     (on-target-complete = 100))
                   (100
@@ -310,16 +306,14 @@
                     (quest-text = "任务：未接（找老王修船）")
                     (say-reject = "修船的事你还没答应帮忙呢。")
                     (on-accept = 20)
-                    (topics = (append *default-topics*
-                                      '((quest . "接任务")))))
+                    (topics = (topics-offer)))
                   (20
                     (state = 'accepted)
                     (greet = "老王：先去问问阿笋，那孩子心里有结。别吓着他。")
                     (quest-text = "任务：找阿笋问明缘由")
                     (objective = 'confront)
                     (say-reject = "先去跟阿笋说说话。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊修船"))))
+                    (topics-empty = (topics-quest "聊聊修船"))
                     (say = "他那船是他爹留下的。剪缆绳，怕的是有人把船拖走。你去听听他怎么说。")
                     (on-target-complete = 30))
                   (30
@@ -328,8 +322,7 @@
                     (quest-text = "任务：接好绞盘上的缆绳")
                     (objective = 'wire)
                     (say-reject = "缆绳还没接呢。")
-                    (topics-empty = (append *default-topics*
-                                            '((quest . "聊聊修船"))))
+                    (topics-empty = (topics-quest "聊聊修船"))
                     (say = "船还是那条船。修好了，谁也拖不走。")
                     (on-target-complete = 100))
                   (100

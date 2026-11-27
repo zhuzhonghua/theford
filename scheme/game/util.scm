@@ -52,6 +52,18 @@
       (hash-table-ref h key)
       (if (null? default) #f (car default))))
 
+;; ---- save-slot registry -----------------------------------------------------
+;; Each state module declares its own (key getter setter default [decoder]) at
+;; load time; save.scm only walks this list. A new runtime state no longer
+;; needs edits in save.scm's write list + load sequence.
+(define *save-slots* '())
+
+(define (register-save-slot! key getter setter default . decoder)
+  (set! *save-slots*
+        (append *save-slots*
+                (list (list key getter setter default
+                            (if (null? decoder) #f (car decoder)))))))
+
 ;; ---- strings ----------------------------------------------------------------
 
 (define (string-index haystack needle)
@@ -126,6 +138,20 @@
   (and (pair? lst)
        (or (pred (car lst))
            (any? pred (cdr lst)))))
+
+
+;; Condition aggregation shared by rules.scm and story.scm: all/any of a
+;; predicate over a list, short-circuiting. Keeps new condition keys from
+;; needing their own loop.
+(define (all-conds pred xs)
+  (cond ((null? xs) #t)
+        ((pred (car xs)) (all-conds pred (cdr xs)))
+        (else #f)))
+
+(define (any-conds pred xs)
+  (and (pair? xs)
+       (or (pred (car xs))
+           (any-conds pred (cdr xs)))))
 
 (define (string-prefix? prefix str)
   (let ((lp (string-length prefix))

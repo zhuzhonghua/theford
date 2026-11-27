@@ -29,6 +29,18 @@ else
   SCRIPTS=("${ALL_SCRIPTS[@]}")
 fi
 
+# save.scm and story.scm both use the single user://save1.scm slot; running
+# them concurrently makes them overwrite each other's save file.
+PARALLEL=()
+SERIAL=()
+for name in "${SCRIPTS[@]}"; do
+  if [ "$name" = "save" ] || [ "$name" = "story" ]; then
+    SERIAL+=("$name")
+  else
+    PARALLEL+=("$name")
+  fi
+done
+
 run_one() {
   local name="$1"
   THEFORD_AI_QUALITY="$QUALITY" THEFORD_ACCEPTANCE="$name" THEFORD_ACCEPTANCE_QUIT=1 \
@@ -46,9 +58,12 @@ run_one() {
 export ROOT GODOT QUALITY LOGDIR
 export -f run_one
 
-printf '%s\n' "${SCRIPTS[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} |
-
-while IFS= read -r line; do printf '%s\n' "$line"; done
+if [ "${#PARALLEL[@]}" -gt 0 ]; then
+  printf '%s\n' "${PARALLEL[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {}
+fi
+for name in ${SERIAL[@]+"${SERIAL[@]}"}; do
+  run_one "$name"
+done
 
 failed=0
 for name in "${SCRIPTS[@]}"; do

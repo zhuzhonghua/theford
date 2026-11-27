@@ -132,3 +132,10 @@
   (run-tick-hooks!)
   (game:status))
 
+
+;; ---- save slots -------------------------------------------------------------
+(register-save-slot! 'tick (lambda () *tick*) (lambda (v) (set! *tick* v)) 0)
+(register-save-slot! 'rng (lambda () *rng-state*)
+  (lambda (v) (set! *rng-state* v)) (world-seed))
+(register-save-slot! 'weather (lambda () *weather-override*)
+  (lambda (v) (set! *weather-override* v)) #f)
